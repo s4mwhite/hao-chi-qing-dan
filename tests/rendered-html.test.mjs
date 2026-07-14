@@ -33,7 +33,10 @@ test("uses the documented map search flow and restaurant photo library", async (
   assert.doesNotMatch(page, /地点 \/ 商圈/);
   assert.match(page, /multiple/);
   assert.match(page, /设为封面/);
-  assert.match(mapPicker, /geocoder\.getLocation/);
   assert.match(mapPicker, /placeSearch\.search/);
+  assert.match(mapPicker, /placeSearch\.searchNearBy/);
+  assert.match(mapPicker, /geocoder\.getLocation/);
+  assert.match(mapPicker, /setSearchResults/);
+  assert.match(mapPicker, /onChangeRef\.current\(\{ address/);
   assert.match(mapPicker, /event\.preventDefault\(\)/);
 });
