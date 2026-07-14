@@ -26,6 +26,53 @@ body {
 
 body.dialog-visible { overflow: hidden; }
 
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background:
+    radial-gradient(circle at 18% 20%, rgba(239, 199, 104, 0.4) 0 110px, transparent 112px),
+    radial-gradient(circle at 82% 75%, rgba(102, 116, 93, 0.25) 0 170px, transparent 172px),
+    var(--paper);
+}
+
+.login-card {
+  width: min(480px, 100%);
+  padding: 48px;
+  border: 1px solid var(--line);
+  border-radius: 30px;
+  background: var(--cream);
+  box-shadow: 12px 14px 0 rgba(43, 39, 33, 0.1), var(--shadow);
+}
+
+.login-mark {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 30px;
+  place-items: center;
+  border-radius: 50% 50% 43% 55%;
+  background: var(--tomato);
+  color: #fff;
+  font-family: "Kaiti SC", serif;
+  font-size: 24px;
+  font-weight: 800;
+  transform: rotate(-4deg);
+}
+
+.login-card h1 { margin: 0; font-family: "STSong", "Songti SC", serif; font-size: clamp(44px, 11vw, 68px); line-height: 1.02; letter-spacing: -0.05em; }
+.login-card h1 em { color: var(--tomato); font-style: normal; }
+.login-copy { margin: 22px 0 28px; color: #6f675d; line-height: 1.7; }
+.login-card form { display: grid; gap: 12px; }
+.login-card label { font-size: 13px; font-weight: 800; }
+.login-card input { width: 100%; height: 52px; border: 1px solid var(--line); border-radius: 13px; padding: 0 14px; background: #fff; }
+.login-card .button { width: 100%; margin-top: 5px; }
+.login-card .button:disabled { opacity: 0.55; cursor: wait; }
+.login-error { margin: 0; color: var(--tomato-dark); font-size: 13px; }
+.login-loading { min-height: 52px; display: flex; align-items: center; color: #746b5f; font-size: 14px; }
+.login-footnote { margin: 22px 0 0; color: #948b7e; font-size: 11px; text-align: center; }
+
 button, input, textarea, select { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button { color: inherit; }
@@ -78,6 +125,10 @@ a { color: inherit; }
 }
 
 .nav-actions { display: flex; align-items: center; gap: 8px; }
+
+.sync-state { padding: 5px 8px; border-radius: 999px; color: var(--sage); background: rgba(102, 116, 93, 0.1); font-size: 11px; font-weight: 800; }
+.sync-syncing { color: #8a6732; background: rgba(239, 199, 104, 0.22); }
+.sync-error { color: var(--tomato-dark); background: rgba(217, 81, 54, 0.11); }
 
 .nav-link {
   border: 0;
@@ -345,11 +396,16 @@ a { color: inherit; }
 .address-line { margin-top: 9px; display: flex; align-items: center; gap: 7px; color: var(--tomato-dark); font-size: 12px; font-weight: 700; }
 .restaurant-card .food-content > p { min-height: 44px; margin-top: 10px; }
 .restaurant-visual::after { content: ""; position: absolute; width: 80px; height: 3px; bottom: 26px; border-radius: 50%; background: rgba(60, 39, 28, 0.14); filter: blur(2px); }
+.restaurant-visual.has-photo::before, .restaurant-visual.has-photo::after { display: none; }
+.restaurant-visual.has-photo > img { width: 100%; height: 100%; object-fit: cover; }
+.photo-loading { position: relative; z-index: 1; color: #756b5e; font-size: 12px; }
 .card-actions { min-height: 35px; margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--line); display: flex; align-items: center; gap: 12px; }
 .card-actions button, .card-actions a { border: 0; background: transparent; padding: 0; cursor: pointer; color: #746b5f; font-size: 12px; text-decoration: none; }
 .card-actions .status-button { margin-right: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--sage); font-weight: 800; }
 .card-actions .status-button span { display: grid; width: 23px; height: 23px; place-items: center; border: 1px solid var(--sage); border-radius: 50%; }
 .card-actions a:hover, .delete-button:hover { color: var(--tomato-dark); }
+.photo-upload { display: inline; color: #746b5f; cursor: pointer; font-size: 12px; font-weight: 400; }
+.photo-upload input { display: none; }
 
 .empty-state { padding: 70px 24px; text-align: center; border: 1px dashed #bfb4a4; border-radius: 22px; background: var(--paper); }
 .empty-state > span { font-size: 56px; }
@@ -369,6 +425,7 @@ footer button { border: 0; background: transparent; color: var(--butter); cursor
 .food-dialog label, .food-dialog legend { display: grid; gap: 8px; font-size: 13px; font-weight: 800; }
 .food-dialog label strong { color: var(--tomato); }
 .food-dialog input, .food-dialog textarea, .food-dialog select { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 12px 13px; background: #fff; color: var(--ink); font-weight: 400; }
+.food-dialog input[aria-invalid="true"] { border-color: var(--tomato); box-shadow: 0 0 0 3px rgba(217, 81, 54, 0.1); }
 .food-dialog textarea { resize: vertical; min-height: 86px; }
 .food-dialog fieldset { margin: 0; padding: 0; border: 0; }
 .food-dialog legend { margin-bottom: 9px; }
@@ -376,6 +433,14 @@ footer button { border: 0; background: transparent; color: var(--butter); cursor
 .emoji-options button { width: 40px; height: 40px; border: 1px solid var(--line); border-radius: 10px; background: #fff; cursor: pointer; font-size: 21px; }
 .emoji-options button.active { border: 2px solid var(--tomato); background: #fff2ed; transform: translateY(-2px); }
 .form-row { display: grid; grid-template-columns: 0.8fr 1.2fr; gap: 12px; }
+.field-help, .field-error { display: block; margin: 0; font-size: 11px; font-weight: 400; line-height: 1.5; }
+.field-help { color: #887f72; }
+.field-error, .field-help.is-error { color: var(--tomato-dark); }
+.map-picker { display: grid; gap: 8px; }
+.map-picker > label { font-size: 13px; font-weight: 800; }
+.map-picker > input { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 12px 13px; background: #fff; }
+.map-canvas { width: 100%; height: 260px; overflow: hidden; border: 1px solid var(--line); border-radius: 15px; background: var(--paper-deep); }
+.map-canvas:empty { display: grid; place-items: center; }
 .dialog-actions { margin-top: 8px; display: flex; justify-content: flex-end; gap: 10px; }
 
 .toast { position: fixed; z-index: 120; left: 50%; bottom: 26px; transform: translateX(-50%); padding: 12px 18px; border-radius: 999px; background: var(--ink); color: #fff; box-shadow: var(--shadow); font-size: 13px; }
@@ -388,9 +453,12 @@ footer button { border: 0; background: transparent; color: var(--butter); cursor
 }
 
 @media (max-width: 640px) {
+  .login-shell { padding: 18px; }
+  .login-card { padding: 34px 24px; border-radius: 24px; }
   .topbar { width: calc(100% - 30px); min-height: 68px; }
   .brand { font-size: 18px; }
   .nav-link { display: none; }
+  .sync-state { display: none; }
   .hero { width: calc(100% - 30px); padding-top: 55px; gap: 38px; }
   .mode-switch { width: 100%; }
   .mode-switch button { min-width: 0; flex: 1; }
@@ -419,6 +487,7 @@ footer button { border: 0; background: transparent; color: var(--butter); cursor
   .food-dialog { max-height: 92vh; padding: 30px 20px 24px; border-radius: 25px 25px 0 0; }
   .food-dialog h2 { font-size: 29px; }
   .form-row { grid-template-columns: 1fr; }
+  .map-canvas { height: 220px; }
   .dialog-actions { position: sticky; bottom: -24px; padding: 14px 0 0; background: var(--cream); }
 }
 

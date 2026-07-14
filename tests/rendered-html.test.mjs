@@ -18,9 +18,8 @@ test("renders the food notebook", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   const html = await response.text();
   assert.match(html, /好吃清单/);
-  assert.match(html, /想吃的/);
-  assert.match(html, /自己做/);
-  assert.match(html, /出去吃/);
+  assert.match(html, /私人清单/);
+  assert.match(html, /正在打开清单/);
   assert.doesNotMatch(html, /预计时间|难度/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);
 });

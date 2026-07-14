@@ -1,6 +1,8 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import MapPicker from "./MapPicker";
+import ProtectedPhoto from "./ProtectedPhoto";
 
 type ItemStatus = "todo" | "done";
 type ViewMode = "cook" | "eatOut";
@@ -26,13 +28,21 @@ type RestaurantItem = {
   status: ItemStatus;
   emoji: string;
   createdAt: number;
+  longitude?: number;
+  latitude?: number;
+  photoKey?: string;
+  photoName?: string;
+  checkedAt?: number;
 };
 
 type FoodDraft = Omit<FoodItem, "id" | "createdAt" | "status">;
-type RestaurantDraft = Omit<RestaurantItem, "id" | "createdAt" | "status">;
+type RestaurantDraft = Pick<RestaurantItem, "name" | "category" | "address" | "reason" | "source" | "emoji" | "longitude" | "latitude">;
+type AuthStatus = "checking" | "signedOut" | "signingIn" | "ready";
 
 const COOK_STORAGE_KEY = "hao-chi-qing-dan-v1";
 const RESTAURANT_STORAGE_KEY = "hao-chi-qing-dan-restaurants-v1";
+const SESSION_STORAGE_KEY = "hao-chi-qing-dan-session-v1";
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/$/, "");
 
 const SAMPLE_ITEMS: FoodItem[] = [
   {
@@ -134,7 +144,35 @@ function isFoodItem(value: unknown): value is FoodItem {
 }
 
 function isRestaurantItem(value: unknown): value is RestaurantItem {
-  return isBaseItem(value) && typeof value.address === "string";
+  if (!isBaseItem(value) || typeof value.address !== "string") return false;
+  const item = value as Record<string, unknown>;
+  return (
+    (item.longitude === undefined || typeof item.longitude === "number") &&
+    (item.latitude === undefined || typeof item.latitude === "number") &&
+    (item.photoKey === undefined || typeof item.photoKey === "string") &&
+    (item.photoName === undefined || typeof item.photoName === "string") &&
+    (item.checkedAt === undefined || typeof item.checkedAt === "number")
+  );
+}
+
+function normalizeHttpUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return { value: "", error: "" };
+  if (trimmed.length > 2048) return { value: trimmed, error: "链接过长，请换一个更短的网址" };
+  const candidate = /^[a-z][a-z\d+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const url = new URL(candidate);
+    if (!['http:', 'https:'].includes(url.protocol)) return { value: trimmed, error: "只支持 http 或 https 链接" };
+    if (!url.hostname || url.username || url.password) return { value: trimmed, error: "请输入不含账号密码的公开网页链接" };
+    return { value: url.toString(), error: "" };
+  } catch {
+    return { value: trimmed, error: "链接格式不正确，例如：https://example.com/page" };
+  }
+}
+
+function safeHttpUrl(value: string) {
+  const result = normalizeHttpUrl(value);
+  return result.error ? "" : result.value;
 }
 
 function normalizeFood(item: FoodItem): FoodItem {
@@ -143,14 +181,65 @@ function normalizeFood(item: FoodItem): FoodItem {
     name: item.name,
     category: item.category,
     reason: item.reason,
-    source: item.source,
+    source: safeHttpUrl(item.source),
     status: item.status,
     emoji: item.emoji,
     createdAt: item.createdAt,
   };
 }
 
+function normalizeRestaurant(item: RestaurantItem): RestaurantItem {
+  return {
+    ...item,
+    source: safeHttpUrl(item.source),
+    longitude: typeof item.longitude === "number" ? item.longitude : undefined,
+    latitude: typeof item.latitude === "number" ? item.latitude : undefined,
+    photoKey: item.photoKey || undefined,
+    photoName: item.photoName || undefined,
+    checkedAt: typeof item.checkedAt === "number" ? item.checkedAt : undefined,
+  };
+}
+
+function mapLink(item: RestaurantItem) {
+  if (item.longitude !== undefined && item.latitude !== undefined) {
+    const params = new URLSearchParams({
+      position: `${item.longitude},${item.latitude}`,
+      name: item.name,
+      src: "好吃清单",
+      coordinate: "gaode",
+      callnative: "0",
+    });
+    return `https://uri.amap.com/marker?${params}`;
+  }
+  const keyword = `${item.name} ${item.address}`.trim();
+  return keyword ? `https://uri.amap.com/search?${new URLSearchParams({ keyword, src: "好吃清单", callnative: "0" })}` : "";
+}
+
+async function optimizePhoto(file: File) {
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) throw new Error("仅支持 JPG、PNG 或 WebP 图片");
+  const bitmap = await createImageBitmap(file);
+  const maxSide = 1600;
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("图片处理失败");
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", 0.82));
+  if (!blob) throw new Error("图片处理失败");
+  if (blob.size > 5 * 1024 * 1024) throw new Error("压缩后的图片仍超过 5MB，请选择较小的照片");
+  return blob;
+}
+
 export default function Home() {
+  const [authStatus, setAuthStatus] = useState<AuthStatus>("checking");
+  const [sessionToken, setSessionToken] = useState("");
+  const [loginName, setLoginName] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [syncReady, setSyncReady] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "saved" | "error">("idle");
   const [mode, setMode] = useState<ViewMode>("cook");
   const [items, setItems] = useState<FoodItem[]>(SAMPLE_ITEMS);
   const [restaurants, setRestaurants] = useState<RestaurantItem[]>(SAMPLE_RESTAURANTS);
@@ -164,6 +253,8 @@ export default function Home() {
   const [restaurantDraft, setRestaurantDraft] = useState<RestaurantDraft>(EMPTY_RESTAURANT_DRAFT);
   const [randomPick, setRandomPick] = useState<{ mode: ViewMode; item: FoodItem | RestaurantItem } | null>(null);
   const [toast, setToast] = useState("");
+  const [sourceError, setSourceError] = useState("");
+  const [uploadingId, setUploadingId] = useState("");
   const importInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -180,7 +271,7 @@ export default function Home() {
       if (savedRestaurants) {
         const parsedRestaurants: unknown = JSON.parse(savedRestaurants);
         if (Array.isArray(parsedRestaurants) && parsedRestaurants.every(isRestaurantItem)) {
-          setRestaurants(parsedRestaurants);
+          setRestaurants(parsedRestaurants.map(normalizeRestaurant));
         }
       }
     } catch {
@@ -192,9 +283,55 @@ export default function Home() {
 
   useEffect(() => {
     if (!loaded) return;
+    if (!API_BASE_URL) {
+      setAuthStatus("signedOut");
+      setLoginError("共享服务尚未配置完成");
+      return;
+    }
+    const savedToken = window.localStorage.getItem(SESSION_STORAGE_KEY) ?? "";
+    if (!savedToken) {
+      setAuthStatus("signedOut");
+      return;
+    }
+    setSessionToken(savedToken);
+    void loadSharedData(savedToken, true);
+  }, [loaded]);
+
+  useEffect(() => {
+    if (!loaded) return;
     window.localStorage.setItem(COOK_STORAGE_KEY, JSON.stringify(items));
     window.localStorage.setItem(RESTAURANT_STORAGE_KEY, JSON.stringify(restaurants));
   }, [items, restaurants, loaded]);
+
+  useEffect(() => {
+    if (!syncReady || authStatus !== "ready" || !sessionToken) return;
+    setSyncStatus("syncing");
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      fetch(`${API_BASE_URL}/api/data`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${sessionToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ version: 3, cook: items, eatOut: restaurants }),
+        signal: controller.signal,
+      }).then((response) => {
+        if (response.status === 401) {
+          signOut("登录已过期，请重新进入");
+          throw new Error("expired");
+        }
+        if (!response.ok) throw new Error("sync");
+        setSyncStatus("saved");
+      }).catch((error) => {
+        if (error.name !== "AbortError" && error.message !== "expired") setSyncStatus("error");
+      });
+    }, 500);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [items, restaurants, authStatus, sessionToken, syncReady]);
 
   useEffect(() => {
     if (!dialogOpen) return;
@@ -242,6 +379,73 @@ export default function Home() {
     setToast(message);
   }
 
+  async function loadSharedData(token: string, migrateLocal: boolean) {
+    setAuthStatus("checking");
+    setLoginError("");
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/data`, { headers: { Authorization: `Bearer ${token}` } });
+      if (response.status === 401) {
+        signOut("登录已过期，请重新进入");
+        return;
+      }
+      if (!response.ok) throw new Error("共享服务暂时不可用");
+      const data = await response.json() as { cook?: unknown; eatOut?: unknown; empty?: boolean };
+      if (data.empty && migrateLocal) {
+        const upload = await fetch(`${API_BASE_URL}/api/data`, {
+          method: "PUT",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ version: 3, cook: items, eatOut: restaurants }),
+        });
+        if (!upload.ok) throw new Error("现有清单迁移失败");
+      } else if (
+        Array.isArray(data.cook) && data.cook.every(isFoodItem) &&
+        Array.isArray(data.eatOut) && data.eatOut.every(isRestaurantItem)
+      ) {
+        setItems(data.cook.map(normalizeFood));
+        setRestaurants(data.eatOut.map(normalizeRestaurant));
+      } else {
+        throw new Error("共享清单格式错误");
+      }
+      setSyncReady(true);
+      setSyncStatus("saved");
+      setAuthStatus("ready");
+    } catch (error) {
+      setAuthStatus("signedOut");
+      setLoginError(error instanceof Error ? error.message : "共享服务暂时不可用");
+    }
+  }
+
+  async function submitLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!loginName.trim() || !API_BASE_URL) return;
+    setAuthStatus("signingIn");
+    setLoginError("");
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: loginName }),
+      });
+      const result = await response.json() as { token?: string; error?: string };
+      if (!response.ok || !result.token) throw new Error(result.error || "暂时无法登录");
+      window.localStorage.setItem(SESSION_STORAGE_KEY, result.token);
+      setSessionToken(result.token);
+      setLoginName("");
+      await loadSharedData(result.token, true);
+    } catch (error) {
+      setAuthStatus("signedOut");
+      setLoginError(error instanceof Error ? error.message : "暂时无法登录");
+    }
+  }
+
+  function signOut(message = "") {
+    window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    setSessionToken("");
+    setSyncReady(false);
+    setAuthStatus("signedOut");
+    setLoginError(message);
+  }
+
   function switchMode(nextMode: ViewMode) {
     setMode(nextMode);
     setQuery("");
@@ -255,6 +459,7 @@ export default function Home() {
     setEditingId(null);
     setFoodDraft(EMPTY_FOOD_DRAFT);
     setRestaurantDraft(EMPTY_RESTAURANT_DRAFT);
+    setSourceError("");
     setDialogOpen(true);
   }
 
@@ -267,6 +472,7 @@ export default function Home() {
       source: item.source,
       emoji: item.emoji,
     });
+    setSourceError("");
     setDialogOpen(true);
   }
 
@@ -279,7 +485,10 @@ export default function Home() {
       reason: item.reason,
       source: item.source,
       emoji: item.emoji,
+      longitude: item.longitude,
+      latitude: item.latitude,
     });
+    setSourceError("");
     setDialogOpen(true);
   }
 
@@ -293,12 +502,18 @@ export default function Home() {
 
     if (mode === "cook") {
       if (!foodDraft.name.trim()) return;
+      const normalizedSource = normalizeHttpUrl(foodDraft.source);
+      if (normalizedSource.error) {
+        setSourceError(normalizedSource.error);
+        return;
+      }
+      const cleanDraft = { ...foodDraft, source: normalizedSource.value };
       if (editingId) {
-        setItems((current) => current.map((item) => item.id === editingId ? { ...item, ...foodDraft, name: foodDraft.name.trim() } : item));
+        setItems((current) => current.map((item) => item.id === editingId ? { ...item, ...cleanDraft, name: foodDraft.name.trim() } : item));
         showToast("已经更新这道美食");
       } else {
         const next: FoodItem = {
-          ...foodDraft,
+          ...cleanDraft,
           id: window.crypto?.randomUUID?.() ?? `${Date.now()}`,
           name: foodDraft.name.trim(),
           status: "todo",
@@ -309,12 +524,18 @@ export default function Home() {
       }
     } else {
       if (!restaurantDraft.name.trim()) return;
+      const normalizedSource = normalizeHttpUrl(restaurantDraft.source);
+      if (normalizedSource.error) {
+        setSourceError(normalizedSource.error);
+        return;
+      }
+      const cleanDraft = { ...restaurantDraft, source: normalizedSource.value };
       if (editingId) {
-        setRestaurants((current) => current.map((item) => item.id === editingId ? { ...item, ...restaurantDraft, name: restaurantDraft.name.trim() } : item));
+        setRestaurants((current) => current.map((item) => item.id === editingId ? { ...item, ...cleanDraft, name: restaurantDraft.name.trim() } : item));
         showToast("已经更新这家饭店");
       } else {
         const next: RestaurantItem = {
-          ...restaurantDraft,
+          ...cleanDraft,
           id: window.crypto?.randomUUID?.() ?? `${Date.now()}`,
           name: restaurantDraft.name.trim(),
           status: "todo",
@@ -324,6 +545,7 @@ export default function Home() {
         showToast("已经加入出去吃清单");
       }
     }
+    setSourceError("");
     closeDialog();
   }
 
@@ -335,6 +557,76 @@ export default function Home() {
     setRestaurants((current) => current.map((item) => item.id === id ? { ...item, status: item.status === "todo" ? "done" : "todo" } : item));
   }
 
+  function validateFoodSource() {
+    const result = normalizeHttpUrl(foodDraft.source);
+    setSourceError(result.error);
+    if (!result.error && result.value !== foodDraft.source) setFoodDraft((current) => ({ ...current, source: result.value }));
+  }
+
+  function validateRestaurantSource() {
+    const result = normalizeHttpUrl(restaurantDraft.source);
+    setSourceError(result.error);
+    if (!result.error && result.value !== restaurantDraft.source) setRestaurantDraft((current) => ({ ...current, source: result.value }));
+  }
+
+  async function deletePhoto(photoKey: string) {
+    if (!photoKey || !sessionToken) return;
+    await fetch(`${API_BASE_URL}/api/photos/${encodeURIComponent(photoKey)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    }).catch(() => undefined);
+  }
+
+  async function uploadCheckinPhoto(item: RestaurantItem, event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !sessionToken) return;
+    setUploadingId(item.id);
+    try {
+      const photo = await optimizePhoto(file);
+      const response = await fetch(`${API_BASE_URL}/api/photos/${encodeURIComponent(item.id)}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${sessionToken}`,
+          "Content-Type": photo.type,
+          "X-Filename": encodeURIComponent(file.name),
+        },
+        body: photo,
+      });
+      const result = await response.json() as { key?: string; error?: string };
+      if (response.status === 401) {
+        signOut("登录已过期，请重新进入");
+        return;
+      }
+      if (!response.ok || !result.key) throw new Error(result.error || "照片上传失败");
+      if (item.photoKey) void deletePhoto(item.photoKey);
+      setRestaurants((current) => current.map((entry) => entry.id === item.id ? {
+        ...entry,
+        photoKey: result.key,
+        photoName: file.name.slice(0, 160),
+        checkedAt: Date.now(),
+        status: "done",
+      } : entry));
+      showToast("打卡照片已保存并同步");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "照片上传失败");
+    } finally {
+      setUploadingId("");
+    }
+  }
+
+  function removeCheckinPhoto(item: RestaurantItem) {
+    if (!item.photoKey || !window.confirm(`确定删除「${item.name}」的打卡照片吗？`)) return;
+    void deletePhoto(item.photoKey);
+    setRestaurants((current) => current.map((entry) => entry.id === item.id ? {
+      ...entry,
+      photoKey: undefined,
+      photoName: undefined,
+      checkedAt: undefined,
+    } : entry));
+    showToast("打卡照片已删除");
+  }
+
   function removeFood(item: FoodItem) {
     if (!window.confirm(`确定删除「${item.name}」吗？`)) return;
     setItems((current) => current.filter((entry) => entry.id !== item.id));
@@ -344,6 +636,7 @@ export default function Home() {
 
   function removeRestaurant(item: RestaurantItem) {
     if (!window.confirm(`确定删除「${item.name}」吗？`)) return;
+    if (item.photoKey) void deletePhoto(item.photoKey);
     setRestaurants((current) => current.filter((entry) => entry.id !== item.id));
     if (randomPick?.item.id === item.id) setRandomPick(null);
     showToast("已从出去吃清单删除");
@@ -368,7 +661,7 @@ export default function Home() {
   }
 
   function exportData() {
-    const backup = { version: 2, cook: items, eatOut: restaurants };
+    const backup = { version: 3, cook: items, eatOut: restaurants };
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -397,7 +690,7 @@ export default function Home() {
       ) {
         const backup = parsed as { cook: FoodItem[]; eatOut: RestaurantItem[] };
         setItems(backup.cook.map(normalizeFood));
-        setRestaurants(backup.eatOut);
+        setRestaurants(backup.eatOut.map(normalizeRestaurant));
         showToast(`已导入 ${backup.cook.length + backup.eatOut.length} 条记录`);
       } else {
         throw new Error("invalid");
@@ -410,6 +703,41 @@ export default function Home() {
     }
   }
 
+  if (authStatus !== "ready") {
+    return (
+      <main className="login-shell">
+        <section className="login-card" aria-labelledby="login-title">
+          <div className="login-mark" aria-hidden="true">好</div>
+          <p className="eyebrow">OUR LITTLE FOOD NOTEBOOK</p>
+          <h1 id="login-title">两个人的<br /><em>好吃清单</em></h1>
+          <p className="login-copy">这是一份私人清单，请验证后继续。</p>
+          {authStatus === "checking" ? (
+            <div className="login-loading" role="status">正在打开清单……</div>
+          ) : (
+            <form onSubmit={submitLogin}>
+              <label htmlFor="access-name">访问凭证</label>
+              <input
+                id="access-name"
+                type="password"
+                autoComplete="current-password"
+                autoFocus
+                required
+                value={loginName}
+                onChange={(event) => setLoginName(event.target.value)}
+                aria-describedby={loginError ? "login-error" : undefined}
+              />
+              {loginError && <p className="login-error" id="login-error" role="alert">{loginError}</p>}
+              <button className="button button-primary" type="submit" disabled={authStatus === "signingIn" || !API_BASE_URL}>
+                {authStatus === "signingIn" ? "正在验证……" : "进入清单"}
+              </button>
+            </form>
+          )}
+          <p className="login-footnote">验证状态仅保存在当前设备。</p>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main>
       <header className="topbar">
@@ -418,8 +746,10 @@ export default function Home() {
           <span>好吃清单</span>
         </a>
         <nav className="nav-actions" aria-label="页面操作">
+          <span className={`sync-state sync-${syncStatus}`}>{syncStatus === "syncing" ? "同步中" : syncStatus === "error" ? "同步失败" : "已同步"}</span>
           <button className="nav-link" type="button" onClick={exportData}>导出备份</button>
           <button className="nav-link" type="button" onClick={() => importInputRef.current?.click()}>导入</button>
+          <button className="nav-link" type="button" onClick={() => signOut()}>退出</button>
           <input ref={importInputRef} className="visually-hidden" type="file" accept="application/json,.json" onChange={importData} aria-label="导入好吃清单备份" />
           <button className="button button-small" type="button" onClick={openNewDialog}>＋ {mode === "cook" ? "记一道" : "记一家"}</button>
         </nav>
@@ -513,7 +843,7 @@ export default function Home() {
                   <p>{item.reason || "先记下来，等下厨时再补充想法。"}</p>
                   <div className="card-actions">
                     <button className="status-button" type="button" onClick={() => toggleFoodStatus(item.id)}><span aria-hidden="true">{item.status === "done" ? "↺" : "✓"}</span>{item.status === "done" ? "放回想做" : "标记做过"}</button>
-                    {item.source && <a href={item.source} target="_blank" rel="noreferrer">看做法 ↗</a>}
+                    {safeHttpUrl(item.source) && <a href={safeHttpUrl(item.source)} target="_blank" rel="noopener noreferrer">看做法 ↗</a>}
                     <button className="delete-button" type="button" onClick={() => removeFood(item)}>删除</button>
                   </div>
                 </div>
@@ -526,8 +856,10 @@ export default function Home() {
           <div className="food-grid">
             {filteredRestaurants.map((item, index) => (
               <article className={`food-card restaurant-card ${item.status === "done" ? "is-done" : ""}`} key={item.id}>
-                <div className={`food-visual restaurant-visual visual-${(index + 1) % 4}`}>
-                  <span className="food-emoji" aria-hidden="true">{item.emoji}</span>
+                <div className={`food-visual restaurant-visual visual-${(index + 1) % 4} ${item.photoKey ? "has-photo" : ""}`}>
+                  {item.photoKey ? (
+                    <ProtectedPhoto apiBaseUrl={API_BASE_URL} token={sessionToken} photoKey={item.photoKey} alt={`${item.name}的打卡照片`} />
+                  ) : <span className="food-emoji" aria-hidden="true">{item.emoji}</span>}
                   <span className="category-stamp">{item.category}</span>
                   {item.status === "done" && <span className="done-stamp">去过啦</span>}
                 </div>
@@ -540,7 +872,15 @@ export default function Home() {
                   <p>{item.reason || "先记下来，等约饭时再做决定。"}</p>
                   <div className="card-actions">
                     <button className="status-button" type="button" onClick={() => toggleRestaurantStatus(item.id)}><span aria-hidden="true">{item.status === "done" ? "↺" : "✓"}</span>{item.status === "done" ? "放回想去" : "标记去过"}</button>
-                    {item.source && <a href={item.source} target="_blank" rel="noreferrer">看详情 ↗</a>}
+                    {mapLink(item) && <a href={mapLink(item)} target="_blank" rel="noopener noreferrer">地图 ↗</a>}
+                    {safeHttpUrl(item.source) && <a href={safeHttpUrl(item.source)} target="_blank" rel="noopener noreferrer">详情 ↗</a>}
+                    {item.status === "done" && (
+                      <label className="photo-upload">
+                        {uploadingId === item.id ? "上传中…" : item.photoKey ? "换照片" : "传照片"}
+                        <input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploadingId === item.id} onChange={(event) => uploadCheckinPhoto(item, event)} />
+                      </label>
+                    )}
+                    {item.photoKey && <button type="button" onClick={() => removeCheckinPhoto(item)}>删照片</button>}
                     <button className="delete-button" type="button" onClick={() => removeRestaurant(item)}>删除</button>
                   </div>
                 </div>
@@ -594,7 +934,17 @@ export default function Home() {
                   </label>
                   <label>
                     菜谱链接（选填）
-                    <input type="url" value={foodDraft.source} onChange={(event) => setFoodDraft({ ...foodDraft, source: event.target.value })} placeholder="https://" />
+                    <input
+                      type="text"
+                      inputMode="url"
+                      value={foodDraft.source}
+                      onChange={(event) => { setFoodDraft({ ...foodDraft, source: event.target.value }); setSourceError(""); }}
+                      onBlur={validateFoodSource}
+                      aria-invalid={Boolean(sourceError)}
+                      aria-describedby={sourceError ? "source-error" : "source-help"}
+                      placeholder="可直接粘贴网址，例如 xiachufang.com/recipe/…"
+                    />
+                    {sourceError ? <span className="field-error" id="source-error">{sourceError}</span> : <span className="field-help" id="source-help">将自动补全 https://，仅接受安全的网页链接。</span>}
                   </label>
                 </>
               ) : (
@@ -616,16 +966,31 @@ export default function Home() {
                     </label>
                     <label>
                       地点 / 商圈
-                      <input value={restaurantDraft.address} onChange={(event) => setRestaurantDraft({ ...restaurantDraft, address: event.target.value })} placeholder="比如：静安寺附近" />
+                      <input value={restaurantDraft.address} onChange={(event) => setRestaurantDraft({ ...restaurantDraft, address: event.target.value, longitude: undefined, latitude: undefined })} placeholder="比如：静安寺附近" />
                     </label>
                   </div>
+                  <MapPicker
+                    apiBaseUrl={API_BASE_URL}
+                    value={{ address: restaurantDraft.address, longitude: restaurantDraft.longitude, latitude: restaurantDraft.latitude }}
+                    onChange={(place) => setRestaurantDraft((current) => ({ ...current, ...place }))}
+                  />
                   <label>
                     为什么想去 / 想吃什么
                     <textarea value={restaurantDraft.reason} onChange={(event) => setRestaurantDraft({ ...restaurantDraft, reason: event.target.value })} placeholder="记下招牌菜、推荐理由或约饭想法……" rows={3} />
                   </label>
                   <label>
                     饭店链接（选填）
-                    <input type="url" value={restaurantDraft.source} onChange={(event) => setRestaurantDraft({ ...restaurantDraft, source: event.target.value })} placeholder="地图、点评或店铺主页链接" />
+                    <input
+                      type="text"
+                      inputMode="url"
+                      value={restaurantDraft.source}
+                      onChange={(event) => { setRestaurantDraft({ ...restaurantDraft, source: event.target.value }); setSourceError(""); }}
+                      onBlur={validateRestaurantSource}
+                      aria-invalid={Boolean(sourceError)}
+                      aria-describedby={sourceError ? "source-error" : "source-help"}
+                      placeholder="地图、点评或店铺主页链接"
+                    />
+                    {sourceError ? <span className="field-error" id="source-error">{sourceError}</span> : <span className="field-help" id="source-help">将自动补全 https://，仅接受安全的网页链接。</span>}
                   </label>
                 </>
               )}
