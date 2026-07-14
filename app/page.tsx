@@ -1045,7 +1045,7 @@ export default function Home() {
                   <div className="card-actions">
                     <button className={`status-button status-${item.status}`} type="button" onClick={() => toggleRestaurantStatus(item.id)} aria-label={item.status === "done" ? "放回想去" : "标记去过"}><span aria-hidden="true">{item.status === "done" ? "✓" : "○"}</span>{item.status === "done" ? "已经去过" : "还没去"}</button>
                     {mapLink(item) && <a href={mapLink(item)} target="_blank" rel="noopener noreferrer">地图 ↗</a>}
-                    {safeHttpUrl(item.source) && <a href={safeHttpUrl(item.source)} target="_blank" rel="noopener noreferrer">详情 ↗</a>}
+                    {safeHttpUrl(item.source) && <a href={safeHttpUrl(item.source)} target="_blank" rel="noopener noreferrer">饭店详情 ↗</a>}
                     <button className="delete-button" type="button" onClick={() => removeRestaurant(item)}>删除</button>
                   </div>
                 </div>

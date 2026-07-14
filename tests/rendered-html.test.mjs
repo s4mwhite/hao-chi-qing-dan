@@ -40,6 +40,7 @@ test("uses the documented map search flow and shared photo check-ins", async () 
   assert.match(page, /mode="eatOut"/);
   assert.match(page, /做完后的评价/);
   assert.match(page, /吃完后的评价/);
+  assert.match(page, /饭店详情 ↗/);
   assert.match(page, /setItems\(\(current\).*photos:/s);
   assert.match(page, /setRestaurants\(\(current\).*photos:/s);
   assert.match(page, /status-\$\{item\.status\}/);
@@ -58,6 +59,7 @@ test("uses the documented map search flow and shared photo check-ins", async () 
   assert.match(styles, /food-visual\.has-photo/);
   assert.match(styles, /status-button\.status-todo/);
   assert.match(styles, /status-button\.status-done/);
+  assert.match(styles, /food-card\.is-done \{[^}]*opacity: 0\.72/s);
 });
 
 test("normalizes AMap POI coordinates for automatic map positioning", async () => {

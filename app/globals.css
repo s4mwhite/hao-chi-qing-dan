@@ -375,10 +375,10 @@ a { color: inherit; }
 .category-row button.active { border-color: var(--tomato); background: var(--tomato); color: #fff; }
 
 .food-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
-.food-card { min-width: 0; border: 1px solid var(--line); border-radius: 22px; background: #fff; overflow: hidden; box-shadow: 0 7px 0 rgba(65, 54, 37, 0.06); transition: transform 180ms ease, box-shadow 180ms ease; }
+.food-card { min-width: 0; border: 1px solid var(--line); border-radius: 22px; background: #fff; overflow: hidden; box-shadow: 0 7px 0 rgba(65, 54, 37, 0.06); transition: transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease; }
 .food-card:hover { transform: translateY(-5px) rotate(-0.3deg); box-shadow: 0 14px 0 rgba(65, 54, 37, 0.07); }
 .food-card.is-todo { border-color: rgba(217, 81, 54, 0.28); }
-.food-card.is-done { border-color: rgba(102, 116, 93, 0.58); box-shadow: 0 7px 0 rgba(102, 116, 93, 0.12); }
+.food-card.is-done { border-color: rgba(102, 116, 93, 0.58); opacity: 0.72; box-shadow: 0 7px 0 rgba(102, 116, 93, 0.12); }
 .food-visual { position: relative; height: 188px; display: grid; place-items: center; overflow: hidden; }
 .food-visual::before { content: ""; position: absolute; width: 154px; height: 154px; border-radius: 50%; background: rgba(255,255,255,0.45); box-shadow: inset 0 0 0 10px rgba(255,255,255,0.32); }
 .visual-0 { background: #d7dfd1; }
