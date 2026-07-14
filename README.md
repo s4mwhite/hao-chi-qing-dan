@@ -25,3 +25,11 @@ npm run dev
 ```bash
 npm run build
 ```
+
+生成 GitHub Pages 静态文件：
+
+```bash
+npm run build:pages
+```
+
+生成结果位于 `docs/`，可在仓库 Pages 设置中选择从 `main` 分支的 `/docs` 目录发布。
