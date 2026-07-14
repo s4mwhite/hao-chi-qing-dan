@@ -254,6 +254,7 @@ function cleanItem(value: unknown, restaurant: boolean) {
     name,
     category: cleanText(item.category, 40) || "其他",
     reason: cleanText(item.reason, 1000),
+    review: cleanText(item.review, 1000),
     source: safeHttpUrl(item.source),
     status: item.status,
     emoji: cleanText(item.emoji, 16) || (restaurant ? "🥢" : "🍲"),
@@ -263,38 +264,38 @@ function cleanItem(value: unknown, restaurant: boolean) {
     cleaned.address = cleanText(item.address, 300);
     if (typeof item.longitude === "number" && item.longitude >= -180 && item.longitude <= 180) cleaned.longitude = item.longitude;
     if (typeof item.latitude === "number" && item.latitude >= -90 && item.latitude <= 90) cleaned.latitude = item.latitude;
-    const photos: Array<{ key: string; name: string; createdAt: number }> = [];
-    if (Array.isArray(item.photos)) {
-      for (const value of item.photos.slice(0, 30)) {
-        if (!value || typeof value !== "object") continue;
-        const photo = value as Record<string, unknown>;
-        const key = cleanText(photo.key, 300);
-        if (!key.startsWith(`checkins/${id}/`)) continue;
-        photos.push({
-          key,
-          name: cleanText(photo.name, 160) || "打卡照片",
-          createdAt: typeof photo.createdAt === "number" ? photo.createdAt : Date.now(),
-        });
-      }
-    }
-    const legacyPhotoKey = cleanText(item.photoKey, 300);
-    if (!photos.length && legacyPhotoKey.startsWith(`checkins/${id}/`)) {
+  }
+  const photos: Array<{ key: string; name: string; createdAt: number }> = [];
+  if (Array.isArray(item.photos)) {
+    for (const value of item.photos.slice(0, 30)) {
+      if (!value || typeof value !== "object") continue;
+      const photo = value as Record<string, unknown>;
+      const key = cleanText(photo.key, 300);
+      if (!key.startsWith(`checkins/${id}/`)) continue;
       photos.push({
-        key: legacyPhotoKey,
-        name: cleanText(item.photoName, 160) || "打卡照片",
-        createdAt: typeof item.checkedAt === "number" ? item.checkedAt : Date.now(),
+        key,
+        name: cleanText(photo.name, 160) || "打卡照片",
+        createdAt: typeof photo.createdAt === "number" ? photo.createdAt : Date.now(),
       });
     }
-    if (photos.length) {
-      cleaned.photos = photos;
-      const requestedCover = cleanText(item.coverPhotoKey, 300);
-      cleaned.coverPhotoKey = photos.some((photo) => photo.key === requestedCover) ? requestedCover : photos[0].key;
-    }
+  }
+  const legacyPhotoKey = cleanText(item.photoKey, 300);
+  if (!photos.length && legacyPhotoKey.startsWith(`checkins/${id}/`)) {
+    photos.push({
+      key: legacyPhotoKey,
+      name: cleanText(item.photoName, 160) || "打卡照片",
+      createdAt: typeof item.checkedAt === "number" ? item.checkedAt : Date.now(),
+    });
+  }
+  if (photos.length) {
+    cleaned.photos = photos;
+    const requestedCover = cleanText(item.coverPhotoKey, 300);
+    cleaned.coverPhotoKey = photos.some((photo) => photo.key === requestedCover) ? requestedCover : photos[0].key;
   }
   return cleaned;
 }
 
-function sanitizeState(value: unknown) {
+export function sanitizeState(value: unknown) {
   if (!value || typeof value !== "object") return null;
   const state = value as { cook?: unknown; eatOut?: unknown };
   if (!Array.isArray(state.cook) || !Array.isArray(state.eatOut)) return null;
@@ -302,7 +303,7 @@ function sanitizeState(value: unknown) {
   const cook = state.cook.map((item) => cleanItem(item, false));
   const eatOut = state.eatOut.map((item) => cleanItem(item, true));
   if (cook.some((item) => item === null) || eatOut.some((item) => item === null)) return null;
-  return { version: 4, cook, eatOut };
+  return { version: 5, cook, eatOut };
 }
 
 async function handleData(request: Request, env: Env) {
@@ -312,7 +313,7 @@ async function handleData(request: Request, env: Env) {
   if (request.method === "GET") {
     const row = await env.DB.prepare("SELECT payload, updated_at FROM app_state WHERE id = 1")
       .first<{ payload: string; updated_at: number }>();
-    if (!row) return json(request, env, { version: 4, cook: [], eatOut: [], empty: true, updatedAt: 0 });
+    if (!row) return json(request, env, { version: 5, cook: [], eatOut: [], empty: true, updatedAt: 0 });
     try {
       return json(request, env, { ...JSON.parse(row.payload), empty: false, updatedAt: row.updated_at });
     } catch {
@@ -360,8 +361,8 @@ async function handlePhotos(request: Request, env: Env, pathname: string) {
   }
 
   if (request.method === "POST") {
-    const restaurantId = pathValue;
-    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantId)) return json(request, env, { error: "饭店记录无效" }, 400);
+    const itemId = pathValue;
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(itemId)) return json(request, env, { error: "记录无效" }, 400);
     const contentType = (request.headers.get("Content-Type") ?? "").split(";")[0].toLowerCase();
     const extension = photoExtension(contentType);
     if (!extension) return json(request, env, { error: "仅支持 JPG、PNG 或 WebP 图片" }, 415);
@@ -369,7 +370,7 @@ async function handlePhotos(request: Request, env: Env, pathname: string) {
     if (length > MAX_PHOTO_BYTES) return json(request, env, { error: "图片不能超过 5MB" }, 413);
     const body = await request.arrayBuffer();
     if (!body.byteLength || body.byteLength > MAX_PHOTO_BYTES) return json(request, env, { error: "图片不能为空且不能超过 5MB" }, 413);
-    const key = `checkins/${restaurantId}/${crypto.randomUUID()}.${extension}`;
+    const key = `checkins/${itemId}/${crypto.randomUUID()}.${extension}`;
     await env.PHOTOS.put(key, body, { httpMetadata: { contentType } });
     return json(request, env, { key });
   }

@@ -7,7 +7,23 @@ import ProtectedPhoto from "./ProtectedPhoto";
 type ItemStatus = "todo" | "done";
 type ViewMode = "cook" | "eatOut";
 
-type FoodItem = {
+type CheckinPhoto = {
+  key: string;
+  name: string;
+  createdAt: number;
+};
+
+type CheckinFields = {
+  review: string;
+  photos?: CheckinPhoto[];
+  coverPhotoKey?: string;
+  // Kept for automatic migration from the first single-photo version.
+  photoKey?: string;
+  photoName?: string;
+  checkedAt?: number;
+};
+
+type FoodItem = CheckinFields & {
   id: string;
   name: string;
   category: string;
@@ -18,13 +34,7 @@ type FoodItem = {
   createdAt: number;
 };
 
-type RestaurantPhoto = {
-  key: string;
-  name: string;
-  createdAt: number;
-};
-
-type RestaurantItem = {
+type RestaurantItem = CheckinFields & {
   id: string;
   name: string;
   category: string;
@@ -36,16 +46,10 @@ type RestaurantItem = {
   createdAt: number;
   longitude?: number;
   latitude?: number;
-  photos?: RestaurantPhoto[];
-  coverPhotoKey?: string;
-  // Kept for automatic migration from the first single-photo version.
-  photoKey?: string;
-  photoName?: string;
-  checkedAt?: number;
 };
 
-type FoodDraft = Omit<FoodItem, "id" | "createdAt" | "status">;
-type RestaurantDraft = Pick<RestaurantItem, "name" | "category" | "address" | "reason" | "source" | "emoji" | "longitude" | "latitude">;
+type FoodDraft = Pick<FoodItem, "name" | "category" | "reason" | "review" | "source" | "emoji">;
+type RestaurantDraft = Pick<RestaurantItem, "name" | "category" | "address" | "reason" | "review" | "source" | "emoji" | "longitude" | "latitude">;
 type AuthStatus = "checking" | "signedOut" | "signingIn" | "ready";
 
 const COOK_STORAGE_KEY = "hao-chi-qing-dan-v1";
@@ -59,6 +63,7 @@ const SAMPLE_ITEMS: FoodItem[] = [
     name: "番茄牛腩煲",
     category: "中餐",
     reason: "想做一锅浓郁又下饭的，周末慢慢炖。",
+    review: "",
     source: "",
     status: "todo",
     emoji: "🍲",
@@ -69,6 +74,7 @@ const SAMPLE_ITEMS: FoodItem[] = [
     name: "巴斯克芝士蛋糕",
     category: "烘焙",
     reason: "焦香的表面和流心口感，想试试少糖版。",
+    review: "",
     source: "",
     status: "todo",
     emoji: "🍰",
@@ -79,6 +85,7 @@ const SAMPLE_ITEMS: FoodItem[] = [
     name: "泰式打抛饭",
     category: "异国",
     reason: "罗勒、辣椒和鱼露的组合很适合工作日晚餐。",
+    review: "香气很足，下次可以再多加一点罗勒。",
     source: "",
     status: "done",
     emoji: "🍛",
@@ -93,6 +100,7 @@ const SAMPLE_RESTAURANTS: RestaurantItem[] = [
     category: "日料",
     address: "静安区 · 南京西路附近",
     reason: "看到朋友推荐，想去试试鸡皮和提灯。",
+    review: "",
     source: "",
     status: "todo",
     emoji: "🍢",
@@ -104,6 +112,7 @@ const SAMPLE_RESTAURANTS: RestaurantItem[] = [
     category: "中餐",
     address: "徐汇区 · 衡山路",
     reason: "想找一个周末和朋友慢慢吃饭的地方。",
+    review: "",
     source: "",
     status: "todo",
     emoji: "🥢",
@@ -120,6 +129,7 @@ const EMPTY_FOOD_DRAFT: FoodDraft = {
   name: "",
   category: "中餐",
   reason: "",
+  review: "",
   source: "",
   emoji: "🍲",
 };
@@ -129,6 +139,7 @@ const EMPTY_RESTAURANT_DRAFT: RestaurantDraft = {
   category: "中餐",
   address: "",
   reason: "",
+  review: "",
   source: "",
   emoji: "🥢",
 };
@@ -149,26 +160,32 @@ function isBaseItem(value: unknown): value is Record<string, unknown> {
 }
 
 function isFoodItem(value: unknown): value is FoodItem {
-  return isBaseItem(value);
+  return isBaseItem(value) && hasCheckinFields(value);
 }
 
-function isRestaurantItem(value: unknown): value is RestaurantItem {
-  if (!isBaseItem(value) || typeof value.address !== "string") return false;
-  const item = value as Record<string, unknown>;
+function hasCheckinFields(value: Record<string, unknown>) {
   return (
-    (item.longitude === undefined || typeof item.longitude === "number") &&
-    (item.latitude === undefined || typeof item.latitude === "number") &&
-    (item.photos === undefined || (
-      Array.isArray(item.photos) && item.photos.every((photo) => {
+    (value.review === undefined || typeof value.review === "string") &&
+    (value.photos === undefined || (
+      Array.isArray(value.photos) && value.photos.every((photo) => {
         if (!photo || typeof photo !== "object") return false;
         const entry = photo as Record<string, unknown>;
         return typeof entry.key === "string" && typeof entry.name === "string" && typeof entry.createdAt === "number";
       })
     )) &&
-    (item.coverPhotoKey === undefined || typeof item.coverPhotoKey === "string") &&
-    (item.photoKey === undefined || typeof item.photoKey === "string") &&
-    (item.photoName === undefined || typeof item.photoName === "string") &&
-    (item.checkedAt === undefined || typeof item.checkedAt === "number")
+    (value.coverPhotoKey === undefined || typeof value.coverPhotoKey === "string") &&
+    (value.photoKey === undefined || typeof value.photoKey === "string") &&
+    (value.photoName === undefined || typeof value.photoName === "string") &&
+    (value.checkedAt === undefined || typeof value.checkedAt === "number")
+  );
+}
+
+function isRestaurantItem(value: unknown): value is RestaurantItem {
+  if (!isBaseItem(value) || typeof value.address !== "string" || !hasCheckinFields(value)) return false;
+  const item = value as Record<string, unknown>;
+  return (
+    (item.longitude === undefined || typeof item.longitude === "number") &&
+    (item.latitude === undefined || typeof item.latitude === "number")
   );
 }
 
@@ -192,12 +209,26 @@ function safeHttpUrl(value: string) {
   return result.error ? "" : result.value;
 }
 
+function normalizedCheckin(item: CheckinFields) {
+  const photos = Array.isArray(item.photos)
+    ? item.photos.filter((photo) => photo.key && photo.name)
+    : item.photoKey
+      ? [{ key: item.photoKey, name: item.photoName || "打卡照片", createdAt: item.checkedAt ?? Date.now() }]
+      : [];
+  return {
+    review: typeof item.review === "string" ? item.review : "",
+    photos: photos.length ? photos : undefined,
+    coverPhotoKey: photos.some((photo) => photo.key === item.coverPhotoKey) ? item.coverPhotoKey : photos[0]?.key,
+  };
+}
+
 function normalizeFood(item: FoodItem): FoodItem {
   return {
     id: item.id,
     name: item.name,
     category: item.category,
     reason: item.reason,
+    ...normalizedCheckin(item),
     source: safeHttpUrl(item.source),
     status: item.status,
     emoji: item.emoji,
@@ -206,32 +237,23 @@ function normalizeFood(item: FoodItem): FoodItem {
 }
 
 function normalizeRestaurant(item: RestaurantItem): RestaurantItem {
-  const photos = Array.isArray(item.photos)
-    ? item.photos.filter((photo) => photo.key && photo.name)
-    : item.photoKey
-      ? [{ key: item.photoKey, name: item.photoName || "打卡照片", createdAt: item.checkedAt ?? Date.now() }]
-      : [];
-  const coverPhotoKey = photos.some((photo) => photo.key === item.coverPhotoKey)
-    ? item.coverPhotoKey
-    : photos[0]?.key;
   return {
     id: item.id,
     name: item.name,
     category: item.category,
     address: item.address,
     reason: item.reason,
+    ...normalizedCheckin(item),
     source: safeHttpUrl(item.source),
     status: item.status,
     emoji: item.emoji,
     createdAt: item.createdAt,
     longitude: typeof item.longitude === "number" ? item.longitude : undefined,
     latitude: typeof item.latitude === "number" ? item.latitude : undefined,
-    photos: photos.length ? photos : undefined,
-    coverPhotoKey,
   };
 }
 
-function coverPhoto(item: RestaurantItem) {
+function coverPhoto(item: FoodItem | RestaurantItem) {
   const photos = item.photos ?? [];
   return photos.find((photo) => photo.key === item.coverPhotoKey) ?? photos[0];
 }
@@ -267,6 +289,61 @@ async function optimizePhoto(file: File) {
   if (!blob) throw new Error("图片处理失败");
   if (blob.size > 5 * 1024 * 1024) throw new Error("压缩后的图片仍超过 5MB，请选择较小的照片");
   return blob;
+}
+
+type PhotoManagerProps = {
+  item?: FoodItem | RestaurantItem;
+  mode: ViewMode;
+  token: string;
+  uploadingId: string;
+  onUpload: (item: FoodItem | RestaurantItem, mode: ViewMode, event: ChangeEvent<HTMLInputElement>) => void;
+  onSetCover: (itemId: string, mode: ViewMode, photoKey: string) => void;
+  onRemove: (item: FoodItem | RestaurantItem, mode: ViewMode, photo: CheckinPhoto) => void;
+};
+
+function PhotoManager({ item, mode, token, uploadingId, onUpload, onSetCover, onRemove }: PhotoManagerProps) {
+  const titleId = `photo-manager-title-${mode}`;
+  return (
+    <section className="photo-manager" aria-labelledby={titleId}>
+      <div className="photo-manager-heading">
+        <div>
+          <h3 id={titleId}>打卡照片</h3>
+          <p>{item
+            ? `上传照片会自动标记为${mode === "cook" ? "已做" : "已去"}；单张自动成为封面，多张可选封面。`
+            : `先保存${mode === "cook" ? "这道美食" : "这家饭店"}，再进入编辑即可上传照片。`}</p>
+        </div>
+        {item && (
+          <label className="photo-add-button">
+            {uploadingId === item.id ? "上传中…" : "＋ 上传照片"}
+            <input
+              type="file"
+              multiple
+              accept="image/jpeg,image/png,image/webp"
+              disabled={uploadingId === item.id}
+              onChange={(event) => onUpload(item, mode, event)}
+            />
+          </label>
+        )}
+      </div>
+      {item && (item.photos?.length ?? 0) === 0 && <div className="photo-empty">还没有打卡照片</div>}
+      {item && (item.photos?.length ?? 0) > 0 && (
+        <div className="photo-library">
+          {(item.photos ?? []).map((photo) => {
+            const isCover = coverPhoto(item)?.key === photo.key;
+            return (
+              <article className={`photo-tile ${isCover ? "is-cover" : ""}`} key={photo.key}>
+                <ProtectedPhoto apiBaseUrl={API_BASE_URL} token={token} photoKey={photo.key} alt={`${item.name}的打卡照片`} />
+                <div className="photo-tile-actions">
+                  {isCover ? <span>封面</span> : <button type="button" onClick={() => onSetCover(item.id, mode, photo.key)}>设为封面</button>}
+                  <button type="button" onClick={() => onRemove(item, mode, photo)}>删除</button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
 }
 
 export default function Home() {
@@ -350,7 +427,7 @@ export default function Home() {
           Authorization: `Bearer ${sessionToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ version: 4, cook: items, eatOut: restaurants }),
+        body: JSON.stringify({ version: 5, cook: items, eatOut: restaurants }),
         signal: controller.signal,
       }).then((response) => {
         if (response.status === 401) {
@@ -393,7 +470,7 @@ export default function Home() {
     return items
       .filter((item) => category === "全部" || item.category === category)
       .filter((item) => status === "all" || item.status === status)
-      .filter((item) => !keyword || `${item.name} ${item.reason} ${item.category}`.toLocaleLowerCase("zh-CN").includes(keyword))
+      .filter((item) => !keyword || `${item.name} ${item.reason} ${item.review} ${item.category}`.toLocaleLowerCase("zh-CN").includes(keyword))
       .sort((a, b) => b.createdAt - a.createdAt);
   }, [items, category, status, query]);
 
@@ -402,7 +479,7 @@ export default function Home() {
     return restaurants
       .filter((item) => category === "全部" || item.category === category)
       .filter((item) => status === "all" || item.status === status)
-      .filter((item) => !keyword || `${item.name} ${item.reason} ${item.category} ${item.address}`.toLocaleLowerCase("zh-CN").includes(keyword))
+      .filter((item) => !keyword || `${item.name} ${item.reason} ${item.review} ${item.category} ${item.address}`.toLocaleLowerCase("zh-CN").includes(keyword))
       .sort((a, b) => b.createdAt - a.createdAt);
   }, [restaurants, category, status, query]);
 
@@ -410,6 +487,9 @@ export default function Home() {
   const todoCount = currentItems.filter((item) => item.status === "todo").length;
   const doneCount = currentItems.length - todoCount;
   const activeCategories = mode === "cook" ? COOK_CATEGORIES : RESTAURANT_CATEGORIES;
+  const editingFood = mode === "cook" && editingId
+    ? items.find((item) => item.id === editingId)
+    : undefined;
   const editingRestaurant = mode === "eatOut" && editingId
     ? restaurants.find((item) => item.id === editingId)
     : undefined;
@@ -433,7 +513,7 @@ export default function Home() {
         const upload = await fetch(`${API_BASE_URL}/api/data`, {
           method: "PUT",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ version: 4, cook: items, eatOut: restaurants }),
+          body: JSON.stringify({ version: 5, cook: items, eatOut: restaurants }),
         });
         if (!upload.ok) throw new Error("现有清单迁移失败");
       } else if (
@@ -508,6 +588,7 @@ export default function Home() {
       name: item.name,
       category: item.category,
       reason: item.reason,
+      review: item.review,
       source: item.source,
       emoji: item.emoji,
     });
@@ -522,6 +603,7 @@ export default function Home() {
       category: item.category,
       address: item.address,
       reason: item.reason,
+      review: item.review,
       source: item.source,
       emoji: item.emoji,
       longitude: item.longitude,
@@ -616,17 +698,17 @@ export default function Home() {
     }).catch(() => undefined);
   }
 
-  async function uploadCheckinPhotos(item: RestaurantItem, event: ChangeEvent<HTMLInputElement>) {
+  async function uploadCheckinPhotos(item: FoodItem | RestaurantItem, targetMode: ViewMode, event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
     if (!files.length || !sessionToken) return;
     const existingPhotos = item.photos ?? [];
     if (existingPhotos.length + files.length > 30) {
-      showToast("每家饭店最多保存 30 张照片");
+      showToast("每条记录最多保存 30 张照片");
       return;
     }
     setUploadingId(item.id);
-    const uploaded: RestaurantPhoto[] = [];
+    const uploaded: CheckinPhoto[] = [];
     let failed = 0;
     try {
       for (const file of files) {
@@ -653,12 +735,21 @@ export default function Home() {
         }
       }
       if (!uploaded.length) throw new Error("照片上传失败，请选择 JPG、PNG 或 WebP 图片");
-      setRestaurants((current) => current.map((entry) => entry.id === item.id ? {
-        ...entry,
-        photos: [...(entry.photos ?? []), ...uploaded],
-        coverPhotoKey: entry.coverPhotoKey ?? uploaded[0].key,
-        status: "done",
-      } : entry));
+      if (targetMode === "cook") {
+        setItems((current) => current.map((entry) => entry.id === item.id ? {
+          ...entry,
+          photos: [...(entry.photos ?? []), ...uploaded],
+          coverPhotoKey: entry.coverPhotoKey ?? uploaded[0].key,
+          status: "done",
+        } : entry));
+      } else {
+        setRestaurants((current) => current.map((entry) => entry.id === item.id ? {
+          ...entry,
+          photos: [...(entry.photos ?? []), ...uploaded],
+          coverPhotoKey: entry.coverPhotoKey ?? uploaded[0].key,
+          status: "done",
+        } : entry));
+      }
       showToast(failed ? `已上传 ${uploaded.length} 张，${failed} 张失败` : `已上传 ${uploaded.length} 张照片`);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "照片上传失败");
@@ -667,26 +758,41 @@ export default function Home() {
     }
   }
 
-  function setCoverPhoto(restaurantId: string, photoKey: string) {
-    setRestaurants((current) => current.map((entry) => entry.id === restaurantId ? { ...entry, coverPhotoKey: photoKey } : entry));
+  function setCoverPhoto(itemId: string, targetMode: ViewMode, photoKey: string) {
+    if (targetMode === "cook") {
+      setItems((current) => current.map((entry) => entry.id === itemId ? { ...entry, coverPhotoKey: photoKey } : entry));
+    } else {
+      setRestaurants((current) => current.map((entry) => entry.id === itemId ? { ...entry, coverPhotoKey: photoKey } : entry));
+    }
     showToast("已设为封面");
   }
 
-  function removeCheckinPhoto(item: RestaurantItem, photo: RestaurantPhoto) {
+  function removeCheckinPhoto(item: FoodItem | RestaurantItem, targetMode: ViewMode, photo: CheckinPhoto) {
     if (!window.confirm(`确定删除照片「${photo.name}」吗？`)) return;
     void deletePhoto(photo.key);
-    setRestaurants((current) => current.map((entry) => entry.id === item.id ? {
-      ...entry,
-      photos: (entry.photos ?? []).filter((candidate) => candidate.key !== photo.key),
-      coverPhotoKey: entry.coverPhotoKey === photo.key
-        ? (entry.photos ?? []).find((candidate) => candidate.key !== photo.key)?.key
-        : entry.coverPhotoKey,
-    } : entry));
+    if (targetMode === "cook") {
+      setItems((current) => current.map((entry) => entry.id === item.id ? {
+        ...entry,
+        photos: (entry.photos ?? []).filter((candidate) => candidate.key !== photo.key),
+        coverPhotoKey: entry.coverPhotoKey === photo.key
+          ? (entry.photos ?? []).find((candidate) => candidate.key !== photo.key)?.key
+          : entry.coverPhotoKey,
+      } : entry));
+    } else {
+      setRestaurants((current) => current.map((entry) => entry.id === item.id ? {
+        ...entry,
+        photos: (entry.photos ?? []).filter((candidate) => candidate.key !== photo.key),
+        coverPhotoKey: entry.coverPhotoKey === photo.key
+          ? (entry.photos ?? []).find((candidate) => candidate.key !== photo.key)?.key
+          : entry.coverPhotoKey,
+      } : entry));
+    }
     showToast("打卡照片已删除");
   }
 
   function removeFood(item: FoodItem) {
     if (!window.confirm(`确定删除「${item.name}」吗？`)) return;
+    for (const photo of item.photos ?? []) void deletePhoto(photo.key);
     setItems((current) => current.filter((entry) => entry.id !== item.id));
     if (randomPick?.item.id === item.id) setRandomPick(null);
     showToast("已从自己做清单删除");
@@ -719,7 +825,7 @@ export default function Home() {
   }
 
   function exportData() {
-    const backup = { version: 4, cook: items, eatOut: restaurants };
+    const backup = { version: 5, cook: items, eatOut: restaurants };
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -886,10 +992,14 @@ export default function Home() {
 
         {mode === "cook" && filteredItems.length > 0 && (
           <div className="food-grid">
-            {filteredItems.map((item, index) => (
-              <article className={`food-card ${item.status === "done" ? "is-done" : ""}`} key={item.id}>
-                <div className={`food-visual visual-${index % 4}`}>
-                  <span className="food-emoji" aria-hidden="true">{item.emoji}</span>
+            {filteredItems.map((item, index) => {
+              const cardPhoto = coverPhoto(item);
+              return (
+              <article className={`food-card is-${item.status}`} key={item.id}>
+                <div className={`food-visual visual-${index % 4} ${cardPhoto ? "has-photo" : ""}`}>
+                  {cardPhoto ? (
+                    <ProtectedPhoto apiBaseUrl={API_BASE_URL} token={sessionToken} photoKey={cardPhoto.key} alt={`${item.name}的封面照片`} />
+                  ) : <span className="food-emoji" aria-hidden="true">{item.emoji}</span>}
                   <span className="category-stamp">{item.category}</span>
                   {item.status === "done" && <span className="done-stamp">做过啦</span>}
                 </div>
@@ -899,14 +1009,15 @@ export default function Home() {
                     <button className="icon-button" type="button" onClick={() => openFoodDialog(item)} aria-label={`编辑${item.name}`}>✎</button>
                   </div>
                   <p>{item.reason || "先记下来，等下厨时再补充想法。"}</p>
+                  {item.review && <div className="review-line"><strong>做后评价</strong><span>{item.review}</span></div>}
                   <div className="card-actions">
-                    <button className="status-button" type="button" onClick={() => toggleFoodStatus(item.id)}><span aria-hidden="true">{item.status === "done" ? "↺" : "✓"}</span>{item.status === "done" ? "放回想做" : "标记做过"}</button>
+                    <button className={`status-button status-${item.status}`} type="button" onClick={() => toggleFoodStatus(item.id)} aria-label={item.status === "done" ? "放回想做" : "标记做过"}><span aria-hidden="true">{item.status === "done" ? "✓" : "○"}</span>{item.status === "done" ? "已经做过" : "还没做"}</button>
                     {safeHttpUrl(item.source) && <a href={safeHttpUrl(item.source)} target="_blank" rel="noopener noreferrer">看做法 ↗</a>}
                     <button className="delete-button" type="button" onClick={() => removeFood(item)}>删除</button>
                   </div>
                 </div>
               </article>
-            ))}
+            )})}
           </div>
         )}
 
@@ -915,7 +1026,7 @@ export default function Home() {
             {filteredRestaurants.map((item, index) => {
               const cardPhoto = coverPhoto(item);
               return (
-              <article className={`food-card restaurant-card ${item.status === "done" ? "is-done" : ""}`} key={item.id}>
+              <article className={`food-card restaurant-card is-${item.status}`} key={item.id}>
                 <div className={`food-visual restaurant-visual visual-${(index + 1) % 4} ${cardPhoto ? "has-photo" : ""}`}>
                   {cardPhoto ? (
                     <ProtectedPhoto apiBaseUrl={API_BASE_URL} token={sessionToken} photoKey={cardPhoto.key} alt={`${item.name}的封面照片`} />
@@ -930,8 +1041,9 @@ export default function Home() {
                   </div>
                   <div className="address-line"><span aria-hidden="true">⌖</span>{item.address || "地点待补充"}</div>
                   <p>{item.reason || "先记下来，等约饭时再做决定。"}</p>
+                  {item.review && <div className="review-line"><strong>吃后评价</strong><span>{item.review}</span></div>}
                   <div className="card-actions">
-                    <button className="status-button" type="button" onClick={() => toggleRestaurantStatus(item.id)}><span aria-hidden="true">{item.status === "done" ? "↺" : "✓"}</span>{item.status === "done" ? "放回想去" : "标记去过"}</button>
+                    <button className={`status-button status-${item.status}`} type="button" onClick={() => toggleRestaurantStatus(item.id)} aria-label={item.status === "done" ? "放回想去" : "标记去过"}><span aria-hidden="true">{item.status === "done" ? "✓" : "○"}</span>{item.status === "done" ? "已经去过" : "还没去"}</button>
                     {mapLink(item) && <a href={mapLink(item)} target="_blank" rel="noopener noreferrer">地图 ↗</a>}
                     {safeHttpUrl(item.source) && <a href={safeHttpUrl(item.source)} target="_blank" rel="noopener noreferrer">详情 ↗</a>}
                     <button className="delete-button" type="button" onClick={() => removeRestaurant(item)}>删除</button>
@@ -986,6 +1098,10 @@ export default function Home() {
                     <textarea value={foodDraft.reason} onChange={(event) => setFoodDraft({ ...foodDraft, reason: event.target.value })} placeholder="记下口味、食材或想尝试的原因……" rows={3} />
                   </label>
                   <label>
+                    做完后的评价
+                    <textarea value={foodDraft.review} onChange={(event) => setFoodDraft({ ...foodDraft, review: event.target.value })} placeholder="做完后记录味道、口感和下次想调整的地方……" rows={3} />
+                  </label>
+                  <label>
                     菜谱链接（选填）
                     <input
                       type="text"
@@ -999,6 +1115,15 @@ export default function Home() {
                     />
                     {sourceError ? <span className="field-error" id="source-error">{sourceError}</span> : <span className="field-help" id="source-help">将自动补全 https://，仅接受安全的网页链接。</span>}
                   </label>
+                  <PhotoManager
+                    item={editingFood}
+                    mode="cook"
+                    token={sessionToken}
+                    uploadingId={uploadingId}
+                    onUpload={uploadCheckinPhotos}
+                    onSetCover={setCoverPhoto}
+                    onRemove={removeCheckinPhoto}
+                  />
                 </>
               ) : (
                 <>
@@ -1027,6 +1152,10 @@ export default function Home() {
                     <textarea value={restaurantDraft.reason} onChange={(event) => setRestaurantDraft({ ...restaurantDraft, reason: event.target.value })} placeholder="记下招牌菜、推荐理由或约饭想法……" rows={3} />
                   </label>
                   <label>
+                    吃完后的评价
+                    <textarea value={restaurantDraft.review} onChange={(event) => setRestaurantDraft({ ...restaurantDraft, review: event.target.value })} placeholder="吃完后记录口味、服务和下次还想不想来……" rows={3} />
+                  </label>
+                  <label>
                     饭店链接（选填）
                     <input
                       type="text"
@@ -1040,45 +1169,15 @@ export default function Home() {
                     />
                     {sourceError ? <span className="field-error" id="source-error">{sourceError}</span> : <span className="field-help" id="source-help">将自动补全 https://，仅接受安全的网页链接。</span>}
                   </label>
-                  <section className="photo-manager" aria-labelledby="photo-manager-title">
-                    <div className="photo-manager-heading">
-                      <div>
-                        <h3 id="photo-manager-title">打卡照片</h3>
-                        <p>{editingRestaurant ? "单张会自动成为封面；多张时可点选封面。" : "先保存饭店，再进入编辑即可上传照片。"}</p>
-                      </div>
-                      {editingRestaurant && (
-                        <label className="photo-add-button">
-                          {uploadingId === editingRestaurant.id ? "上传中…" : "＋ 上传照片"}
-                          <input
-                            type="file"
-                            multiple
-                            accept="image/jpeg,image/png,image/webp"
-                            disabled={uploadingId === editingRestaurant.id}
-                            onChange={(event) => uploadCheckinPhotos(editingRestaurant, event)}
-                          />
-                        </label>
-                      )}
-                    </div>
-                    {editingRestaurant && (editingRestaurant.photos?.length ?? 0) === 0 && (
-                      <div className="photo-empty">还没有打卡照片</div>
-                    )}
-                    {editingRestaurant && (editingRestaurant.photos?.length ?? 0) > 0 && (
-                      <div className="photo-library">
-                        {(editingRestaurant.photos ?? []).map((photo) => {
-                          const isCover = coverPhoto(editingRestaurant)?.key === photo.key;
-                          return (
-                            <article className={`photo-tile ${isCover ? "is-cover" : ""}`} key={photo.key}>
-                              <ProtectedPhoto apiBaseUrl={API_BASE_URL} token={sessionToken} photoKey={photo.key} alt={`${editingRestaurant.name}的打卡照片`} />
-                              <div className="photo-tile-actions">
-                                {isCover ? <span>封面</span> : <button type="button" onClick={() => setCoverPhoto(editingRestaurant.id, photo.key)}>设为封面</button>}
-                                <button type="button" onClick={() => removeCheckinPhoto(editingRestaurant, photo)}>删除</button>
-                              </div>
-                            </article>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </section>
+                  <PhotoManager
+                    item={editingRestaurant}
+                    mode="eatOut"
+                    token={sessionToken}
+                    uploadingId={uploadingId}
+                    onUpload={uploadCheckinPhotos}
+                    onSetCover={setCoverPhoto}
+                    onRemove={removeCheckinPhoto}
+                  />
                 </>
               )}
               <div className="dialog-actions">

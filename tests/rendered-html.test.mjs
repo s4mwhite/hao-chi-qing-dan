@@ -25,7 +25,7 @@ test("renders the food notebook", async () => {
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);
 });
 
-test("uses the documented map search flow and restaurant photo library", async () => {
+test("uses the documented map search flow and shared photo check-ins", async () => {
   const [page, mapPicker, backend, styles] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/MapPicker.tsx", import.meta.url), "utf8"),
@@ -36,6 +36,13 @@ test("uses the documented map search flow and restaurant photo library", async (
   assert.match(page, /multiple/);
   assert.match(page, /设为封面/);
   assert.match(page, /token=\{sessionToken\}/);
+  assert.match(page, /mode="cook"/);
+  assert.match(page, /mode="eatOut"/);
+  assert.match(page, /做完后的评价/);
+  assert.match(page, /吃完后的评价/);
+  assert.match(page, /setItems\(\(current\).*photos:/s);
+  assert.match(page, /setRestaurants\(\(current\).*photos:/s);
+  assert.match(page, /status-\$\{item\.status\}/);
   assert.match(mapPicker, /api\/map\/search/);
   assert.match(mapPicker, /setZoomAndCenter\(17/);
   assert.match(mapPicker, /setTimeout\(\(\) => runSearchRef\.current\(keyword\), 700\)/);
@@ -45,7 +52,12 @@ test("uses the documented map search flow and restaurant photo library", async (
   assert.match(backend, /\/api\/map\/search/);
   assert.match(backend, /\/v3\/place\/around/);
   assert.match(backend, /\/v3\/place\/text/);
+  assert.match(backend, /review: cleanText\(item\.review, 1000\)/);
+  assert.match(backend, /return \{ version: 5, cook, eatOut \}/);
   assert.match(styles, /food-dialog::-webkit-scrollbar/);
+  assert.match(styles, /food-visual\.has-photo/);
+  assert.match(styles, /status-button\.status-todo/);
+  assert.match(styles, /status-button\.status-done/);
 });
 
 test("normalizes AMap POI coordinates for automatic map positioning", async () => {
@@ -67,4 +79,36 @@ test("normalizes AMap POI coordinates for automatic map positioning", async () =
     longitude: 121.489233,
     latitude: 31.239098,
   }]);
+});
+
+test("preserves reviews and cook check-in photos in shared state", async () => {
+  const { sanitizeState } = await import("../backend/src/index.ts");
+  const result = sanitizeState({
+    version: 4,
+    cook: [{
+      id: "cook-1",
+      name: "冷萃酸奶夹",
+      category: "甜品",
+      reason: "想试试",
+      review: "  好吃，下次少放糖。  ",
+      source: "",
+      status: "done",
+      emoji: "🍰",
+      createdAt: 1,
+      photos: [
+        { key: "checkins/cook-1/photo.webp", name: "成品.webp", createdAt: 2 },
+        { key: "checkins/another/photo.webp", name: "越权.webp", createdAt: 3 },
+      ],
+      coverPhotoKey: "checkins/cook-1/photo.webp",
+    }],
+    eatOut: [],
+  });
+  assert.equal(result?.version, 5);
+  assert.equal(result?.cook[0]?.review, "好吃，下次少放糖。");
+  assert.deepEqual(result?.cook[0]?.photos, [{
+    key: "checkins/cook-1/photo.webp",
+    name: "成品.webp",
+    createdAt: 2,
+  }]);
+  assert.equal(result?.cook[0]?.coverPhotoKey, "checkins/cook-1/photo.webp");
 });
