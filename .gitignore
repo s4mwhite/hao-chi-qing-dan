@@ -39,5 +39,6 @@ next-env.d.ts
 /dist/
 /.wrangler/
 **/.wrangler/
+**/.wrangler-dry-run/
 /outputs/
 /work/
