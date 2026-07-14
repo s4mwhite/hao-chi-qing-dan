@@ -12,7 +12,8 @@ if (!response.ok) throw new Error(`Unable to render the homepage: ${response.sta
 let html = await response.text();
 html = html
   .replaceAll("http://localhost:3000/og.png", "./og.png")
-  .replaceAll("https://pages.local/og.png", "./og.png")
+  .replaceAll("https://pages.local/og.png", "https://s4mwhite.github.io/hao-chi-qing-dan/og.png")
+  .replace('self.__VINEXT_RSC_NAV__={"pathname":"/","searchParams":[]}', 'self.__VINEXT_RSC_NAV__={"pathname":"/hao-chi-qing-dan/","searchParams":[]}')
   .replaceAll("/assets/", "./assets/");
 
 await rm(new URL("../docs/", import.meta.url), { recursive: true, force: true });
