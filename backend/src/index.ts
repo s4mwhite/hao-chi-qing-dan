@@ -263,11 +263,33 @@ function cleanItem(value: unknown, restaurant: boolean) {
     cleaned.address = cleanText(item.address, 300);
     if (typeof item.longitude === "number" && item.longitude >= -180 && item.longitude <= 180) cleaned.longitude = item.longitude;
     if (typeof item.latitude === "number" && item.latitude >= -90 && item.latitude <= 90) cleaned.latitude = item.latitude;
-    const photoKey = cleanText(item.photoKey, 300);
-    if (photoKey.startsWith(`checkins/${id}/`)) cleaned.photoKey = photoKey;
-    const photoName = cleanText(item.photoName, 160);
-    if (photoName) cleaned.photoName = photoName;
-    if (typeof item.checkedAt === "number") cleaned.checkedAt = item.checkedAt;
+    const photos: Array<{ key: string; name: string; createdAt: number }> = [];
+    if (Array.isArray(item.photos)) {
+      for (const value of item.photos.slice(0, 30)) {
+        if (!value || typeof value !== "object") continue;
+        const photo = value as Record<string, unknown>;
+        const key = cleanText(photo.key, 300);
+        if (!key.startsWith(`checkins/${id}/`)) continue;
+        photos.push({
+          key,
+          name: cleanText(photo.name, 160) || "打卡照片",
+          createdAt: typeof photo.createdAt === "number" ? photo.createdAt : Date.now(),
+        });
+      }
+    }
+    const legacyPhotoKey = cleanText(item.photoKey, 300);
+    if (!photos.length && legacyPhotoKey.startsWith(`checkins/${id}/`)) {
+      photos.push({
+        key: legacyPhotoKey,
+        name: cleanText(item.photoName, 160) || "打卡照片",
+        createdAt: typeof item.checkedAt === "number" ? item.checkedAt : Date.now(),
+      });
+    }
+    if (photos.length) {
+      cleaned.photos = photos;
+      const requestedCover = cleanText(item.coverPhotoKey, 300);
+      cleaned.coverPhotoKey = photos.some((photo) => photo.key === requestedCover) ? requestedCover : photos[0].key;
+    }
   }
   return cleaned;
 }
@@ -280,7 +302,7 @@ function sanitizeState(value: unknown) {
   const cook = state.cook.map((item) => cleanItem(item, false));
   const eatOut = state.eatOut.map((item) => cleanItem(item, true));
   if (cook.some((item) => item === null) || eatOut.some((item) => item === null)) return null;
-  return { version: 3, cook, eatOut };
+  return { version: 4, cook, eatOut };
 }
 
 async function handleData(request: Request, env: Env) {
@@ -290,7 +312,7 @@ async function handleData(request: Request, env: Env) {
   if (request.method === "GET") {
     const row = await env.DB.prepare("SELECT payload, updated_at FROM app_state WHERE id = 1")
       .first<{ payload: string; updated_at: number }>();
-    if (!row) return json(request, env, { version: 3, cook: [], eatOut: [], empty: true, updatedAt: 0 });
+    if (!row) return json(request, env, { version: 4, cook: [], eatOut: [], empty: true, updatedAt: 0 });
     try {
       return json(request, env, { ...JSON.parse(row.payload), empty: false, updatedAt: row.updated_at });
     } catch {
