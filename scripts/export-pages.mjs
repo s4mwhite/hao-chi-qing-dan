@@ -11,15 +11,15 @@ if (!response.ok) throw new Error(`Unable to render the homepage: ${response.sta
 
 let html = await response.text();
 html = html
-  .replaceAll("http://localhost:3000/og.png", "./og.png")
-  .replaceAll("https://pages.local/og.png", "https://s4mwhite.github.io/hao-chi-qing-dan/og.png")
+  .replaceAll("http://localhost:3000/og-v2.png", "https://s4mwhite.github.io/hao-chi-qing-dan/og-v2.png")
+  .replaceAll("https://pages.local/og-v2.png", "https://s4mwhite.github.io/hao-chi-qing-dan/og-v2.png")
   .replace('self.__VINEXT_RSC_NAV__={"pathname":"/","searchParams":[]}', 'self.__VINEXT_RSC_NAV__={"pathname":"/hao-chi-qing-dan/","searchParams":[]}')
   .replaceAll("/assets/", "./assets/");
 
 await rm(new URL("../docs/", import.meta.url), { recursive: true, force: true });
 await mkdir(new URL("../docs/", import.meta.url), { recursive: true });
 await cp(new URL("../dist/client/assets/", import.meta.url), new URL("../docs/assets/", import.meta.url), { recursive: true });
-await cp(new URL("../dist/client/og.png", import.meta.url), new URL("../docs/og.png", import.meta.url));
+await cp(new URL("../dist/client/og-v2.png", import.meta.url), new URL("../docs/og-v2.png", import.meta.url));
 await writeFile(new URL("../docs/index.html", import.meta.url), html);
 await writeFile(new URL("../docs/.nojekyll", import.meta.url), "");
 

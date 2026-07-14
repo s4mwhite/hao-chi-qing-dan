@@ -19,6 +19,8 @@ test("renders the food notebook", async () => {
   const html = await response.text();
   assert.match(html, /好吃清单/);
   assert.match(html, /想吃的/);
-  assert.match(html, /我的美食清单/);
+  assert.match(html, /自己做/);
+  assert.match(html, /出去吃/);
+  assert.doesNotMatch(html, /预计时间|难度/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);
 });

@@ -90,6 +90,38 @@ a { color: inherit; }
 
 .nav-link:hover { color: var(--tomato-dark); }
 
+.mode-switch {
+  width: fit-content;
+  display: flex;
+  gap: 5px;
+  margin-bottom: 28px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 250, 241, 0.72);
+  box-shadow: 0 7px 18px rgba(74, 57, 33, 0.07);
+}
+
+.mode-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 112px;
+  height: 42px;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.mode-switch button.active {
+  background: var(--ink);
+  color: #fff;
+}
+
 .button {
   display: inline-flex;
   align-items: center;
@@ -195,6 +227,8 @@ a { color: inherit; }
   overflow: hidden;
   box-shadow: var(--shadow);
 }
+
+.hero-board.restaurant-board { background: #8b6253; }
 
 .hero-board::before,
 .hero-board::after {
@@ -308,8 +342,10 @@ a { color: inherit; }
 .food-title-row h3 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: "STSong", "Songti SC", serif; font-size: 23px; }
 .icon-button { width: 32px; height: 32px; flex: 0 0 32px; border: 1px solid var(--line); border-radius: 50%; background: transparent; cursor: pointer; }
 .food-content > p { min-height: 48px; margin: 12px 0 18px; color: #6f675d; font-size: 13px; line-height: 1.75; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.food-meta { display: flex; flex-wrap: wrap; gap: 8px 15px; padding: 13px 0; border-top: 1px dashed var(--line); border-bottom: 1px dashed var(--line); color: #71695e; font-size: 12px; }
-.card-actions { min-height: 35px; margin-top: 16px; display: flex; align-items: center; gap: 12px; }
+.address-line { margin-top: 9px; display: flex; align-items: center; gap: 7px; color: var(--tomato-dark); font-size: 12px; font-weight: 700; }
+.restaurant-card .food-content > p { min-height: 44px; margin-top: 10px; }
+.restaurant-visual::after { content: ""; position: absolute; width: 80px; height: 3px; bottom: 26px; border-radius: 50%; background: rgba(60, 39, 28, 0.14); filter: blur(2px); }
+.card-actions { min-height: 35px; margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--line); display: flex; align-items: center; gap: 12px; }
 .card-actions button, .card-actions a { border: 0; background: transparent; padding: 0; cursor: pointer; color: #746b5f; font-size: 12px; text-decoration: none; }
 .card-actions .status-button { margin-right: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--sage); font-weight: 800; }
 .card-actions .status-button span { display: grid; width: 23px; height: 23px; place-items: center; border: 1px solid var(--sage); border-radius: 50%; }
@@ -339,7 +375,7 @@ footer button { border: 0; background: transparent; color: var(--butter); cursor
 .emoji-options { display: flex; flex-wrap: wrap; gap: 7px; }
 .emoji-options button { width: 40px; height: 40px; border: 1px solid var(--line); border-radius: 10px; background: #fff; cursor: pointer; font-size: 21px; }
 .emoji-options button.active { border: 2px solid var(--tomato); background: #fff2ed; transform: translateY(-2px); }
-.form-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.form-row { display: grid; grid-template-columns: 0.8fr 1.2fr; gap: 12px; }
 .dialog-actions { margin-top: 8px; display: flex; justify-content: flex-end; gap: 10px; }
 
 .toast { position: fixed; z-index: 120; left: 50%; bottom: 26px; transform: translateX(-50%); padding: 12px 18px; border-radius: 999px; background: var(--ink); color: #fff; box-shadow: var(--shadow); font-size: 13px; }
@@ -356,6 +392,8 @@ footer button { border: 0; background: transparent; color: var(--butter); cursor
   .brand { font-size: 18px; }
   .nav-link { display: none; }
   .hero { width: calc(100% - 30px); padding-top: 55px; gap: 38px; }
+  .mode-switch { width: 100%; }
+  .mode-switch button { min-width: 0; flex: 1; }
   .hero h1 { font-size: clamp(52px, 17vw, 74px); }
   .hero-description { font-size: 15px; }
   .hero-actions { flex-direction: column; align-items: stretch; }
