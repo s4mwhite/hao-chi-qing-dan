@@ -415,8 +415,9 @@ footer > span { margin-right: auto; font-family: "STSong", serif; font-size: 22p
 footer p { color: #c5bcae; font-size: 13px; }
 footer button { border: 0; background: transparent; color: var(--butter); cursor: pointer; font-weight: 700; }
 
-.dialog-backdrop { position: fixed; z-index: 100; inset: 0; padding: 24px; display: grid; place-items: center; background: rgba(39,34,28,0.62); backdrop-filter: blur(5px); overflow-y: auto; }
-.food-dialog { position: relative; width: min(680px, 100%); max-height: calc(100vh - 48px); overflow-y: auto; padding: 38px; border-radius: 25px; background: var(--cream); box-shadow: 0 25px 90px rgba(0,0,0,0.32); }
+.dialog-backdrop { position: fixed; z-index: 100; inset: 0; padding: 24px; display: grid; place-items: center; background: rgba(39,34,28,0.62); backdrop-filter: blur(5px); overflow: hidden; }
+.food-dialog { position: relative; width: min(680px, 100%); max-height: calc(100vh - 48px); overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; padding: 38px; border-radius: 25px; background: var(--cream); box-shadow: 0 25px 90px rgba(0,0,0,0.32); }
+.food-dialog::-webkit-scrollbar { display: none; }
 .food-dialog h2 { margin: 0 0 26px; font-family: "STSong", serif; font-size: 34px; }
 .dialog-close { position: absolute; right: 18px; top: 16px; width: 38px; height: 38px; border: 0; border-radius: 50%; background: var(--paper-deep); cursor: pointer; font-size: 27px; line-height: 1; }
 .food-dialog form { display: grid; gap: 19px; }
@@ -440,7 +441,8 @@ footer button { border: 0; background: transparent; color: var(--butter); cursor
 .map-search-row > input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 12px; padding: 12px 13px; background: #fff; }
 .map-search-row > button { min-width: 72px; border: 0; border-radius: 12px; padding: 0 16px; background: var(--ink); color: #fff; cursor: pointer; font-weight: 800; }
 .map-search-row > button:disabled { opacity: 0.45; cursor: wait; }
-.map-results { display: grid; gap: 6px; max-height: 190px; overflow-y: auto; }
+.map-results { display: grid; gap: 6px; max-height: 190px; overflow-y: auto; scrollbar-width: none; }
+.map-results::-webkit-scrollbar { display: none; }
 .map-results > button { display: grid; gap: 2px; width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; background: #fff; color: var(--ink); text-align: left; cursor: pointer; }
 .map-results > button:hover, .map-results > button:focus-visible { border-color: var(--tomato); background: #fff8f2; }
 .map-results strong { font-size: 12px; }

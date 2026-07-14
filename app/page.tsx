@@ -1018,6 +1018,7 @@ export default function Home() {
                   </label>
                   <MapPicker
                     apiBaseUrl={API_BASE_URL}
+                    token={sessionToken}
                     value={{ address: restaurantDraft.address, longitude: restaurantDraft.longitude, latitude: restaurantDraft.latitude }}
                     onChange={(place) => setRestaurantDraft((current) => ({ ...current, ...place }))}
                   />

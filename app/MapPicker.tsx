@@ -10,15 +10,16 @@ type MapValue = {
   latitude?: number;
 };
 
-type MapPickerProps = {
-  apiBaseUrl: string;
-  value: MapValue;
-  onChange: (value: MapValue) => void;
-};
-
-type SearchResult = MapValue & {
+type SearchResult = Required<MapValue> & {
   id: string;
   name: string;
+};
+
+type MapPickerProps = {
+  apiBaseUrl: string;
+  token: string;
+  value: MapValue;
+  onChange: (value: MapValue) => void;
 };
 
 type AMapWindow = Window & {
@@ -47,68 +48,22 @@ function loadAmap(apiBaseUrl: string) {
   return amapPromise;
 }
 
-function textValue(value: unknown) {
-  if (typeof value === "string") return value.trim();
-  if (Array.isArray(value)) return value.filter((entry) => typeof entry === "string").join("").trim();
-  return "";
+function isSearchResult(value: unknown): value is SearchResult {
+  if (!value || typeof value !== "object") return false;
+  const entry = value as Record<string, unknown>;
+  return typeof entry.id === "string" && typeof entry.name === "string" && typeof entry.address === "string"
+    && typeof entry.longitude === "number" && typeof entry.latitude === "number";
 }
 
-function coordinateFromPoi(poi: any) {
-  const location = poi?.location;
-  if (!location) return null;
-  if (typeof location === "string") {
-    const [longitude, latitude] = location.split(",").map(Number);
-    return Number.isFinite(longitude) && Number.isFinite(latitude) ? { longitude, latitude } : null;
-  }
-  if (Array.isArray(location)) {
-    const [longitude, latitude] = location.map(Number);
-    return Number.isFinite(longitude) && Number.isFinite(latitude) ? { longitude, latitude } : null;
-  }
-  const longitude = typeof location.getLng === "function" ? location.getLng() : Number(location.lng);
-  const latitude = typeof location.getLat === "function" ? location.getLat() : Number(location.lat);
-  if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return null;
-  return { longitude, latitude };
-}
-
-function joinAddressParts(parts: string[]) {
-  return parts.reduce((result, part) => {
-    if (!part || result.includes(part)) return result;
-    return `${result}${part}`;
-  }, "");
-}
-
-function normalizePoi(poi: any, index: number): SearchResult | null {
-  const coordinates = coordinateFromPoi(poi);
-  if (!coordinates) return null;
-  const name = textValue(poi?.name) || "地图位置";
-  const streetAddress = joinAddressParts([
-    textValue(poi?.pname),
-    textValue(poi?.cityname),
-    textValue(poi?.adname),
-    textValue(poi?.district),
-    textValue(poi?.address),
-  ]);
-  const address = streetAddress ? `${name} · ${streetAddress}` : name;
-  return {
-    id: textValue(poi?.id) || `${coordinates.longitude},${coordinates.latitude}-${index}`,
-    name,
-    address,
-    ...coordinates,
-  };
-}
-
-function poisFromResult(result: any) {
-  const pois = result?.poiList?.pois ?? result?.pois ?? result?.data?.poiList?.pois;
-  return Array.isArray(pois) ? pois : [];
-}
-
-export default function MapPicker({ apiBaseUrl, value, onChange }: MapPickerProps) {
+export default function MapPicker({ apiBaseUrl, token, value, onChange }: MapPickerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
   const onChangeRef = useRef(onChange);
-  const [initialValue] = useState(value);
   const runSearchRef = useRef<(keyword: string) => void>(() => undefined);
   const chooseResultRef = useRef<(result: SearchResult) => void>(() => undefined);
+  const autoSearchTimerRef = useRef<number | undefined>(undefined);
+  const requestSequenceRef = useRef(0);
+  const [initialValue] = useState(value);
+  const [searchText, setSearchText] = useState(value.address);
   const inputId = useId().replace(/:/g, "");
   const [mapStatus, setMapStatus] = useState<"loading" | "ready" | "searching" | "error">("loading");
   const [message, setMessage] = useState("正在加载地图……");
@@ -119,7 +74,7 @@ export default function MapPicker({ apiBaseUrl, value, onChange }: MapPickerProp
   }, [onChange]);
 
   useEffect(() => {
-    if (!apiBaseUrl || !containerRef.current) {
+    if (!apiBaseUrl || !token || !containerRef.current) {
       setMapStatus("error");
       setMessage("地图服务尚未配置，请稍后重试。");
       return;
@@ -128,127 +83,103 @@ export default function MapPicker({ apiBaseUrl, value, onChange }: MapPickerProp
     let disposed = false;
     let map: any;
     let marker: any;
-    let autocomplete: any;
 
     loadAmap(apiBaseUrl).then((AMap) => {
       if (disposed || !containerRef.current) return;
-      const initial = initialValue;
-      const center = initial.longitude !== undefined && initial.latitude !== undefined
-        ? [initial.longitude, initial.latitude]
+      const center = initialValue.longitude !== undefined && initialValue.latitude !== undefined
+        ? [initialValue.longitude, initialValue.latitude]
         : [121.4737, 31.2304];
-      map = new AMap.Map(containerRef.current, { center, zoom: initial.longitude !== undefined ? 16 : 11 });
-      marker = new AMap.Marker({ position: center, visible: initial.longitude !== undefined });
+      map = new AMap.Map(containerRef.current, { center, zoom: initialValue.longitude !== undefined ? 16 : 11 });
+      marker = new AMap.Marker({ position: center, visible: initialValue.longitude !== undefined });
       map.add(marker);
 
       const choosePosition = (result: SearchResult) => {
         marker.setPosition([result.longitude, result.latitude]);
         marker.show();
         map.setZoomAndCenter(17, [result.longitude, result.latitude]);
-        if (searchRef.current) searchRef.current.value = result.address;
         onChangeRef.current({ address: result.address, longitude: result.longitude, latitude: result.latitude });
-        setMessage(`已选择：${result.address}`);
+        setMessage(`已定位：${result.address}`);
         setMapStatus("ready");
       };
       chooseResultRef.current = choosePosition;
 
-      AMap.plugin(["AMap.AutoComplete", "AMap.PlaceSearch", "AMap.Geocoder", "AMap.ToolBar"], () => {
-        if (disposed) return;
-        const geocoder = new AMap.Geocoder();
-        const placeSearch = new AMap.PlaceSearch({ pageSize: 8, pageIndex: 1, city: "全国" });
-        if (AMap.ToolBar) map.addControl(new AMap.ToolBar({ position: "RT" }));
-        autocomplete = new AMap.AutoComplete({ input: searchRef.current ?? inputId, city: "全国" });
-
-        const applyPoiResults = (result: any) => {
-          const results = poisFromResult(result)
-            .map((poi: any, index: number) => normalizePoi(poi, index))
-            .filter((entry: SearchResult | null): entry is SearchResult => entry !== null);
-          if (!results.length) return false;
+      const searchPlace = async (keyword: string) => {
+        const query = keyword.trim();
+        if (query.length < 2) {
+          setMessage("请输入至少两个字的饭店名称或地址。");
+          return;
+        }
+        const sequence = ++requestSequenceRef.current;
+        setMapStatus("searching");
+        setSearchResults([]);
+        setMessage("正在定位地图位置……");
+        const currentCenter = map.getCenter();
+        const params = new URLSearchParams({
+          query,
+          longitude: String(currentCenter.getLng()),
+          latitude: String(currentCenter.getLat()),
+        });
+        try {
+          const response = await fetch(`${apiBaseUrl}/api/map/search?${params}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const payload = await response.json() as { results?: unknown; error?: string };
+          if (sequence !== requestSequenceRef.current || disposed) return;
+          if (!response.ok) throw new Error(payload.error || "地图搜索失败");
+          const results = Array.isArray(payload.results) ? payload.results.filter(isSearchResult) : [];
+          if (!results.length) {
+            setMapStatus("ready");
+            setMessage("没有找到这个位置，请尝试加入城市、道路或门牌号。");
+            return;
+          }
           setSearchResults(results);
           choosePosition(results[0]);
-          setMessage(results.length > 1
-            ? `已定位到：${results[0].address}。如不是这家，请从下方候选中选择。`
-            : `已选择：${results[0].address}`);
-          return true;
-        };
+          if (results.length > 1) setMessage(`已定位：${results[0].address}。不是这家可从下方候选中选择。`);
+        } catch (error) {
+          if (sequence !== requestSequenceRef.current || disposed) return;
+          setMapStatus("ready");
+          setMessage(error instanceof Error ? error.message : "地图搜索失败，请稍后重试。");
+        }
+      };
+      runSearchRef.current = (keyword) => { void searchPlace(keyword); };
 
-        const geocodeAddress = (query: string) => {
-          geocoder.getLocation(query, (status: string, result: any) => {
-            const geocode = status === "complete" && result?.info === "OK" ? result?.geocodes?.[0] : null;
-            const coordinates = coordinateFromPoi(geocode);
-            if (!geocode || !coordinates) {
-              setSearchResults([]);
-              setMapStatus("ready");
-              setMessage("没有找到这个位置，请输入饭店名，或包含城市、道路和门牌号的详细地址。");
-              return;
-            }
-            const address = textValue(geocode.formattedAddress) || query;
-            const entry: SearchResult = { id: `address-${coordinates.longitude},${coordinates.latitude}`, name: address, address, ...coordinates };
-            setSearchResults([entry]);
-            choosePosition(entry);
-          });
-        };
-
-        const searchEverywhere = (query: string) => {
-          placeSearch.search(query, (status: string, result: any) => {
-            if (status === "complete" && applyPoiResults(result)) return;
-            geocodeAddress(query);
-          });
-        };
-
-        const searchPlace = (keyword: string) => {
-          const query = keyword.trim();
-          if (!query) {
-            setMessage("请输入饭店名称或详细地址。");
-            return;
-          }
-          setMapStatus("searching");
-          setSearchResults([]);
-          setMessage("正在搜索当前地图附近的地点……");
-          const currentCenter = map.getCenter();
-          placeSearch.searchNearBy(query, [currentCenter.getLng(), currentCenter.getLat()], 50000, (status: string, result: any) => {
-            if (status === "complete" && applyPoiResults(result)) return;
-            searchEverywhere(query);
-          });
-        };
-        runSearchRef.current = searchPlace;
-
-        autocomplete.on("select", (event: any) => {
-          const selected = normalizePoi(event?.poi, 0);
-          if (selected) {
-            setSearchResults([selected]);
-            choosePosition(selected);
-            return;
-          }
-          const name = textValue(event?.poi?.name);
-          const district = textValue(event?.poi?.district);
-          searchPlace(`${district}${name}` || name);
-        });
-
-        map.on("click", (event: any) => {
-          const longitude = event.lnglat.getLng();
-          const latitude = event.lnglat.getLat();
-          setMapStatus("searching");
-          setSearchResults([]);
-          setMessage("正在读取地图地址……");
-          geocoder.getAddress([longitude, latitude], (status: string, result: any) => {
-            const address = status === "complete" && result?.info === "OK"
-              ? textValue(result?.regeocode?.formattedAddress)
-              : "";
-            const entry: SearchResult = {
-              id: `map-${longitude},${latitude}`,
-              name: address || "地图选点",
-              address: address || `地图选点 · ${longitude.toFixed(6)}, ${latitude.toFixed(6)}`,
-              longitude,
-              latitude,
-            };
-            choosePosition(entry);
-          });
-        });
-        setMapStatus("ready");
-        setMessage(initial.longitude !== undefined
-          ? "已载入保存的位置，可重新搜索或点击地图调整。"
-          : "搜索饭店，或直接点击地图选择位置。");
+      AMap.plugin("AMap.ToolBar", () => {
+        if (!disposed && AMap.ToolBar) map.addControl(new AMap.ToolBar({ position: "RT" }));
       });
+
+      map.on("click", async (event: any) => {
+        const longitude = event.lnglat.getLng();
+        const latitude = event.lnglat.getLat();
+        const sequence = ++requestSequenceRef.current;
+        setMapStatus("searching");
+        setSearchResults([]);
+        setMessage("正在读取地图地址……");
+        const params = new URLSearchParams({ longitude: String(longitude), latitude: String(latitude) });
+        try {
+          const response = await fetch(`${apiBaseUrl}/api/map/reverse?${params}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const payload = await response.json() as { address?: string };
+          if (sequence !== requestSequenceRef.current || disposed) return;
+          const address = typeof payload.address === "string" && payload.address.trim()
+            ? payload.address.trim()
+            : `地图选点 · ${longitude.toFixed(6)}, ${latitude.toFixed(6)}`;
+          choosePosition({ id: `map-${longitude},${latitude}`, name: address, address, longitude, latitude });
+        } catch {
+          if (sequence !== requestSequenceRef.current || disposed) return;
+          choosePosition({
+            id: `map-${longitude},${latitude}`,
+            name: "地图选点",
+            address: `地图选点 · ${longitude.toFixed(6)}, ${latitude.toFixed(6)}`,
+            longitude,
+            latitude,
+          });
+        }
+      });
+      setMapStatus("ready");
+      setMessage(initialValue.longitude !== undefined
+        ? "已载入保存的位置；输入新地点后会自动重新定位。"
+        : "输入饭店名称或地址，停顿片刻后地图会自动定位。");
     }).catch(() => {
       if (!disposed) {
         setMapStatus("error");
@@ -258,15 +189,24 @@ export default function MapPicker({ apiBaseUrl, value, onChange }: MapPickerProp
 
     return () => {
       disposed = true;
+      requestSequenceRef.current += 1;
+      window.clearTimeout(autoSearchTimerRef.current);
       runSearchRef.current = () => undefined;
       chooseResultRef.current = () => undefined;
-      autocomplete?.off?.("select");
       map?.destroy?.();
     };
-  }, [apiBaseUrl, initialValue, inputId]);
+  }, [apiBaseUrl, initialValue, token]);
+
+  function queueAutomaticSearch(keyword: string) {
+    setSearchText(keyword);
+    window.clearTimeout(autoSearchTimerRef.current);
+    if (keyword.trim().length < 2) return;
+    autoSearchTimerRef.current = window.setTimeout(() => runSearchRef.current(keyword), 700);
+  }
 
   function submitSearch() {
-    runSearchRef.current(searchRef.current?.value ?? "");
+    window.clearTimeout(autoSearchTimerRef.current);
+    runSearchRef.current(searchText);
   }
 
   return (
@@ -274,13 +214,13 @@ export default function MapPicker({ apiBaseUrl, value, onChange }: MapPickerProp
       <label htmlFor={inputId}>地图位置</label>
       <div className="map-search-row">
         <input
-          ref={searchRef}
           id={inputId}
           type="search"
-          defaultValue={initialValue.address}
-          placeholder="输入饭店名称或详细地址，按回车搜索"
+          value={searchText}
+          placeholder="输入饭店名称或详细地址"
           autoComplete="off"
           disabled={mapStatus === "error"}
+          onChange={(event) => queueAutomaticSearch(event.target.value)}
           onKeyDown={(event) => {
             if (event.key !== "Enter") return;
             event.preventDefault();
@@ -288,7 +228,9 @@ export default function MapPicker({ apiBaseUrl, value, onChange }: MapPickerProp
             submitSearch();
           }}
         />
-        <button type="button" onClick={submitSearch} disabled={mapStatus !== "ready"}>搜索</button>
+        <button type="button" onClick={submitSearch} disabled={mapStatus === "loading" || mapStatus === "searching" || mapStatus === "error"}>
+          {mapStatus === "searching" ? "定位中" : "搜索"}
+        </button>
       </div>
       <div ref={containerRef} className="map-canvas" aria-label="高德地图选点" />
       {searchResults.length > 1 && (

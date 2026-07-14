@@ -398,6 +398,148 @@ async function handlePhotos(request: Request, env: Env, pathname: string) {
   return json(request, env, { error: "不支持的请求" }, 405);
 }
 
+function amapText(value: unknown) {
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) return value.filter((entry) => typeof entry === "string").join("").trim();
+  return "";
+}
+
+function amapLocation(value: unknown) {
+  if (typeof value !== "string") return null;
+  const [longitude, latitude] = value.split(",").map(Number);
+  if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return null;
+  return { longitude, latitude };
+}
+
+function requestedCoordinates(url: URL) {
+  const longitudeText = url.searchParams.get("longitude");
+  const latitudeText = url.searchParams.get("latitude");
+  if (longitudeText === null || latitudeText === null) return null;
+  const longitude = Number(longitudeText);
+  const latitude = Number(latitudeText);
+  if (!Number.isFinite(longitude) || !Number.isFinite(latitude) || longitude < -180 || longitude > 180 || latitude < -90 || latitude > 90) return null;
+  return { longitude, latitude };
+}
+
+function normalizedAmapPois(value: unknown) {
+  if (!value || typeof value !== "object") return [];
+  const pois = (value as { pois?: unknown }).pois;
+  if (!Array.isArray(pois)) return [];
+  return pois.flatMap((raw, index) => {
+    if (!raw || typeof raw !== "object") return [];
+    const poi = raw as Record<string, unknown>;
+    const location = amapLocation(poi.location);
+    if (!location) return [];
+    const name = amapText(poi.name) || "地图位置";
+    const addressParts = [amapText(poi.pname), amapText(poi.cityname), amapText(poi.adname), amapText(poi.address)]
+      .filter((part, partIndex, parts) => part && parts.indexOf(part) === partIndex);
+    const streetAddress = addressParts.join("");
+    return [{
+      id: amapText(poi.id) || `${location.longitude},${location.latitude}-${index}`,
+      name,
+      address: streetAddress ? `${name} · ${streetAddress}` : name,
+      ...location,
+    }];
+  });
+}
+
+export { normalizedAmapPois };
+
+function amapServiceParams(request: Request, env: Env) {
+  return new URLSearchParams({
+    platform: "JS",
+    s: "rsv3",
+    logversion: "2.0",
+    key: env.AMAP_JS_KEY ?? "",
+    sdkversion: "2.0",
+    appname: request.headers.get("Referer") || getRequestOrigin(request) || allowedOrigins(env)[0] || "",
+    csid: crypto.randomUUID(),
+    jscode: env.AMAP_SECURITY_CODE ?? "",
+  });
+}
+
+async function fetchAmapJson(request: Request, env: Env, pathname: string, extra: Record<string, string>) {
+  const target = new URL(`https://restapi.amap.com${pathname}`);
+  const params = amapServiceParams(request, env);
+  for (const [key, value] of Object.entries(extra)) params.set(key, value);
+  target.search = params.toString();
+  const response = await fetch(target, { headers: { "Referer": request.headers.get("Referer") ?? `${allowedOrigins(env)[0]}/` } });
+  if (!response.ok) return null;
+  return response.json<unknown>().catch(() => null);
+}
+
+async function handleMapSearch(request: Request, env: Env) {
+  if (request.method !== "GET") return json(request, env, { error: "不支持的请求" }, 405);
+  if (!isAllowedOrigin(request, env)) return json(request, env, { error: "请求来源未获授权" }, 403);
+  if (!await requireSession(request, env)) return json(request, env, { error: "登录已过期" }, 401);
+  if (!env.AMAP_JS_KEY || !env.AMAP_SECURITY_CODE) return json(request, env, { error: "地图服务尚未配置" }, 503);
+
+  const url = new URL(request.url);
+  const query = cleanText(url.searchParams.get("query"), 120);
+  if (query.length < 2) return json(request, env, { error: "请输入饭店名称或详细地址" }, 400);
+  const coordinates = requestedCoordinates(url);
+  let results: ReturnType<typeof normalizedAmapPois> = [];
+
+  if (coordinates) {
+    const nearby = await fetchAmapJson(request, env, "/v3/place/around", {
+      keywords: query,
+      location: `${coordinates.longitude},${coordinates.latitude}`,
+      radius: "50000",
+      sortrule: "distance",
+      offset: "8",
+      page: "1",
+      extensions: "base",
+    });
+    results = normalizedAmapPois(nearby);
+  }
+
+  if (!results.length) {
+    const places = await fetchAmapJson(request, env, "/v3/place/text", {
+      keywords: query,
+      city: "全国",
+      offset: "8",
+      page: "1",
+      extensions: "base",
+    });
+    results = normalizedAmapPois(places);
+  }
+
+  if (!results.length) {
+    const geocode = await fetchAmapJson(request, env, "/v3/geocode/geo", { address: query, city: "全国" });
+    if (geocode && typeof geocode === "object") {
+      const first = (geocode as { geocodes?: unknown }).geocodes;
+      if (Array.isArray(first) && first[0] && typeof first[0] === "object") {
+        const entry = first[0] as Record<string, unknown>;
+        const location = amapLocation(entry.location);
+        const address = amapText(entry.formatted_address) || query;
+        if (location) results = [{ id: `address-${location.longitude},${location.latitude}`, name: address, address, ...location }];
+      }
+    }
+  }
+
+  return json(request, env, { results });
+}
+
+async function handleMapReverse(request: Request, env: Env) {
+  if (request.method !== "GET") return json(request, env, { error: "不支持的请求" }, 405);
+  if (!isAllowedOrigin(request, env)) return json(request, env, { error: "请求来源未获授权" }, 403);
+  if (!await requireSession(request, env)) return json(request, env, { error: "登录已过期" }, 401);
+  if (!env.AMAP_JS_KEY || !env.AMAP_SECURITY_CODE) return json(request, env, { error: "地图服务尚未配置" }, 503);
+
+  const url = new URL(request.url);
+  const coordinates = requestedCoordinates(url);
+  if (!coordinates) return json(request, env, { error: "地图坐标无效" }, 400);
+  const result = await fetchAmapJson(request, env, "/v3/geocode/regeo", {
+    location: `${coordinates.longitude},${coordinates.latitude}`,
+    extensions: "base",
+  });
+  const regeocode = result && typeof result === "object" ? (result as { regeocode?: unknown }).regeocode : null;
+  const address = regeocode && typeof regeocode === "object"
+    ? amapText((regeocode as Record<string, unknown>).formatted_address)
+    : "";
+  return json(request, env, { address });
+}
+
 async function proxyAmap(request: Request, env: Env, pathname: string) {
   if (!isAllowedOrigin(request, env)) return new Response("Forbidden", { status: 403 });
   if (!env.AMAP_JS_KEY || !env.AMAP_SECURITY_CODE) return new Response("Map is not configured", { status: 503 });
@@ -443,6 +585,8 @@ export default {
     if (url.pathname === "/health") return json(request, env, { ok: true });
     if (url.pathname === "/api/login" && request.method === "POST") return handleLogin(request, env);
     if (url.pathname === "/api/data") return handleData(request, env);
+    if (url.pathname === "/api/map/search") return handleMapSearch(request, env);
+    if (url.pathname === "/api/map/reverse") return handleMapReverse(request, env);
     if (url.pathname.startsWith("/api/photos/")) return handlePhotos(request, env, url.pathname);
     if (url.pathname === "/amap/maps" || url.pathname.startsWith("/_AMapService/")) return proxyAmap(request, env, url.pathname);
     return json(request, env, { error: "Not found" }, 404);
