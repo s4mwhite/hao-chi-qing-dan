@@ -25,6 +25,24 @@ test("renders the food notebook", async () => {
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);
 });
 
+test("extracts safe URLs from Douyin share text", async () => {
+  const { normalizeHttpUrl } = await import("../app/url-utils.ts");
+  const shares = [
+    [
+      "4.33 复制打开抖音，看看【曲奇小萄的作品】情侣约会之diy黑皮kitty啦 https://v.douyin.com/FAp3Ti2IbiY/ X@Z.MW",
+      "https://v.douyin.com/FAp3Ti2IbiY/",
+    ],
+    [
+      "8.28 复制打开抖音，看看【会吃的慧的作品】宝藏美食 https://v.douyin.com/ZKesp43s2m8/ t@e.OK",
+      "https://v.douyin.com/ZKesp43s2m8/",
+    ],
+  ];
+  for (const [share, expected] of shares) assert.equal(normalizeHttpUrl(share).value, expected);
+  assert.equal(normalizeHttpUrl("xiachufang.com/recipe/123").value, "https://xiachufang.com/recipe/123");
+  assert.match(normalizeHttpUrl("复制打开抖音但没有网址").error, /没有识别到有效网址/);
+  assert.match(normalizeHttpUrl("javascript:alert(1)").error, /只支持 http 或 https/);
+});
+
 test("uses the documented map search flow and shared photo check-ins", async () => {
   const [page, mapPicker, backend, styles] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
@@ -41,6 +59,8 @@ test("uses the documented map search flow and shared photo check-ins", async () 
   assert.match(page, /做完后的评价/);
   assert.match(page, /吃完后的评价/);
   assert.match(page, /饭店详情 ↗/);
+  assert.match(page, /onPaste=\{pasteFoodSource\}/);
+  assert.match(page, /抖音完整分享文案/);
   assert.match(page, /setItems\(\(current\).*photos:/s);
   assert.match(page, /setRestaurants\(\(current\).*photos:/s);
   assert.match(page, /status-\$\{item\.status\}/);

@@ -1,8 +1,9 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, ClipboardEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import MapPicker from "./MapPicker";
 import ProtectedPhoto from "./ProtectedPhoto";
+import { normalizeHttpUrl } from "./url-utils";
 
 type ItemStatus = "todo" | "done";
 type ViewMode = "cook" | "eatOut";
@@ -187,21 +188,6 @@ function isRestaurantItem(value: unknown): value is RestaurantItem {
     (item.longitude === undefined || typeof item.longitude === "number") &&
     (item.latitude === undefined || typeof item.latitude === "number")
   );
-}
-
-function normalizeHttpUrl(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return { value: "", error: "" };
-  if (trimmed.length > 2048) return { value: trimmed, error: "链接过长，请换一个更短的网址" };
-  const candidate = /^[a-z][a-z\d+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
-  try {
-    const url = new URL(candidate);
-    if (!['http:', 'https:'].includes(url.protocol)) return { value: trimmed, error: "只支持 http 或 https 链接" };
-    if (!url.hostname || url.username || url.password) return { value: trimmed, error: "请输入不含账号密码的公开网页链接" };
-    return { value: url.toString(), error: "" };
-  } catch {
-    return { value: trimmed, error: "链接格式不正确，例如：https://example.com/page" };
-  }
 }
 
 function safeHttpUrl(value: string) {
@@ -690,6 +676,24 @@ export default function Home() {
     if (!result.error && result.value !== restaurantDraft.source) setRestaurantDraft((current) => ({ ...current, source: result.value }));
   }
 
+  function pasteFoodSource(event: ClipboardEvent<HTMLInputElement>) {
+    const result = normalizeHttpUrl(event.clipboardData.getData("text"));
+    if (result.error || !result.value) return;
+    event.preventDefault();
+    setFoodDraft((current) => ({ ...current, source: result.value }));
+    setSourceError("");
+    showToast("已从分享内容中识别链接");
+  }
+
+  function pasteRestaurantSource(event: ClipboardEvent<HTMLInputElement>) {
+    const result = normalizeHttpUrl(event.clipboardData.getData("text"));
+    if (result.error || !result.value) return;
+    event.preventDefault();
+    setRestaurantDraft((current) => ({ ...current, source: result.value }));
+    setSourceError("");
+    showToast("已从分享内容中识别链接");
+  }
+
   async function deletePhoto(photoKey: string) {
     if (!photoKey || !sessionToken) return;
     await fetch(`${API_BASE_URL}/api/photos/${encodeURIComponent(photoKey)}`, {
@@ -1108,12 +1112,13 @@ export default function Home() {
                       inputMode="url"
                       value={foodDraft.source}
                       onChange={(event) => { setFoodDraft({ ...foodDraft, source: event.target.value }); setSourceError(""); }}
+                      onPaste={pasteFoodSource}
                       onBlur={validateFoodSource}
                       aria-invalid={Boolean(sourceError)}
                       aria-describedby={sourceError ? "source-error" : "source-help"}
-                      placeholder="可直接粘贴网址，例如 xiachufang.com/recipe/…"
+                      placeholder="粘贴菜谱网址或整段抖音分享文案"
                     />
-                    {sourceError ? <span className="field-error" id="source-error">{sourceError}</span> : <span className="field-help" id="source-help">将自动补全 https://，仅接受安全的网页链接。</span>}
+                    {sourceError ? <span className="field-error" id="source-error">{sourceError}</span> : <span className="field-help" id="source-help">可直接粘贴抖音完整分享文案，将自动提取其中的网址。</span>}
                   </label>
                   <PhotoManager
                     item={editingFood}
@@ -1162,6 +1167,7 @@ export default function Home() {
                       inputMode="url"
                       value={restaurantDraft.source}
                       onChange={(event) => { setRestaurantDraft({ ...restaurantDraft, source: event.target.value }); setSourceError(""); }}
+                      onPaste={pasteRestaurantSource}
                       onBlur={validateRestaurantSource}
                       aria-invalid={Boolean(sourceError)}
                       aria-describedby={sourceError ? "source-error" : "source-help"}
